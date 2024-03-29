@@ -16,3 +16,12 @@
     * ISO transfer의 buffersize는 wMaxPacketSize * frame 당 packet 수 즉, wMaxPacketSize * 8 의 배수가 되어야 함  
     하지만 너무 큰 buffer size를 할당한다면 timeout error + USBD_STATUS_BAD_START_FRAME packet을 받음  
     buffer 사이즈의 문제인 것으로 생각되나 정확한 원인을 찾는 중
+
+# 개발 계획
+## kBench
+1. https://github.com/mcuee/libusbk/releases/tag/V3.1.0.0 에서 ...-setup.exe
+2. C:\libusbK-dev-kit\ 경로에서  
+    명령어 : .\kBench.exe vid=0x1004 pid=0xa000 intf=1 altf=1 buffersize=49152000 mode=async read notestselect buffercount=10
+
+
+kBench 코드를 참고하여 더 가벼운 test tool 제작 예정
