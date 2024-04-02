@@ -27,28 +27,34 @@
 *   The transfers will have a timeout of 1000ms.
 *
 ********************************************************************!*/
-#include <window.h>
+// #include <window.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <conio.h>
+#include <wtypes.h>
+#include <stdarg.h>
 
 #include "libusbk/libusbk.h"
 #include "libusbk/lusbk_shared.h"
+#include "libusbk/lusbk_linked_list.h"
+
+#define MAX_OUTSTANDING_TRANSFERS 10
 
 #define LOG(LogTypeString, format, ...) printf("%s[" __FUNCTION__"] "format, LogTypeString, ##__VA_ARGS__)
-#define LOG_NO_FN(LogTypeString, format, ...) printf("%s"format "%s", LogTypeString, ##__VA_ARGS__"")
+#define LOG_NO_FN(LogTypeString, format, ...) printf("%s" format "%s", LogTypeString, ##__VA_ARGS__,"")
 
 #define LOG_ERROR(format, ...) LOG("ERROR: ", format, ##__VA_ARGS__)
 #define LOG_WARNING(format, ...) LOG("WARNING: ", format, ##__VA_ARGS__)
 #define LOG_MSG(format, ...) LOG_NO_FN("", format, ##__VA_ARGS__)
-#define LOG_DEBUG(format, ...) LOG("DEBUG: ", format, ##__VA_ARGS__)
+#define LOG_DEBUG(format, ...) LOG_NO_FN("", format, ##__VA_ARGS__)
 
 #define LOGERR0(message) LOG_ERROR("%s\n", message)
 #define LOGWAR0(message) LOG_WARNING("%s\n", message)
 #define LOGMSG0(message) LOG_MSG("%s\n", message)
 #define LOGDBG0(message) LOG_DEBUG("%s\n", message)
 
-#define VerifyListLock(mTest) while(InterlockedExchange(&((mTest)->VerifyLock),1) != 0) Sleep(0)
-#define VerifyListUnlock(mTest) InterlockedExchange(&((mTest)->VerifyLock),0)
+#define VerifyListLock(mTest) while(InterlockedExchange(&((mTest)->verifyLock),1) != 0) Sleep(0)
+#define VerifyListUnlock(mTest) InterlockedExchange(&((mTest)->verifyLock),0)
 
 KUSB_DRIVER_API K;
 CRITICAL_SECTION DisplayCriticalSection;
@@ -77,8 +83,8 @@ typedef enum _BENCHMARK_TRANSFER_MODE{
 typedef struct _PARAM{
     int vid;
     int pid;
-    int interface;
-    int altface;
+    int intf;
+    int altf;
     int endpoint;
     int transfer;
     int timeout;
@@ -86,14 +92,16 @@ typedef struct _PARAM{
     int bufferlength;
     int readlenth;
     int writelength;
+    int bufferCount;
     int repeat;
-    bool verify;
-    bool verifyDetails;
+    BOOL useList;
+    BOOL verify;
+    BOOL verifyDetails;
     enum BENCHMARK_DEVICE_TEST_TYPE TestType;
     enum BENCHMARK_TRANSFER_MODE TransferMode;
 
-    bool use_UsbK_Init;
-    bool listDevicesOnly;
+    BOOL use_UsbK_Init;
+    BOOL listDevicesOnly;
     
     KLST_HANDLE DeviceList;
     KLST_DEVINFO_HANDLE SelectedDeviceProfile;
@@ -103,32 +111,56 @@ typedef struct _PARAM{
     USB_CONFIGURATION_DESCRIPTOR ConfigDescriptor;
     USB_INTERFACE_DESCRIPTOR InterfaceDescriptor;
     USB_ENDPOINT_DESCRIPTOR EndpointDescriptor;
-    bool isCancelled;
-    bool isUserAborted;
+    BOOL isCancelled;
+    BOOL isUserAborted;
+
+	volatile long verifyLock;
+	BENCHMARK_BUFFER* VerifyList;
 
     unsigned char verifyBuffer;
     unsigned short verifyBufferSize;
-    bool use_UsbK_Init;
-    bool listDevicesOnly;
+    BOOL use_UsbK_Init;
+    BOOL listDevicesOnly;
     unsigned long deviceSpeed;
 
-    bool ReadLogEnabled;
+    BOOL ReadLogEnabled;
     FILE* ReadLogFile;
-    bool WriteLogEnabled;
+    BOOL WriteLogEnabled;
     FILE* WriteLogFile;
 
     PBENCHMARK_BUFFER VerifyBuffer;
     PBENCHMARK_BUFFER VerifyList;
+
+    unsigned char defaultAltSetting
 } PARAM, *PPARAM;
+
+typedef struct _BENCHMARK_ISOCH_RESULTS
+{
+	UINT GoodPackets;
+	UINT BadPackets;
+	UINT Length;
+	UINT TotalPackets;
+}BENCHMARK_ISOCH_RESULTS;
+
+typedef struct _BENCHMARK_TRANSFER_HANDLE
+{
+	KISOCH_HANDLE IsochHandle;
+	OVERLAPPED Overlapped;
+	BOOL InUse;
+	PUCHAR Data;
+	INT DataMaxLength;
+	INT ReturnCode;
+	BENCHMARK_ISOCH_RESULTS IsochResults;
+} BENCHMARK_TRANSFER_HANDLE, * PBENCHMARK_TRANSFER_HANDLE;
 
 typedef struct _BENCHMARK_TRANSFER_PARAM{
     PPARAM TestParms;
     unsigned int frameNumber;
     unsigned int numberOFIsoPackets;
-    Handle ThreadHandle;
+    HANDLE ThreadHandle;
     DWORD ThreadId;
     WINUSB_PIPE_INFORMATION_EX Ep;
-    bool isRunning;
+    BOOL isRunning;
 
     long long TotalTransferred;
     long LastTransferred;
@@ -139,16 +171,19 @@ typedef struct _BENCHMARK_TRANSFER_PARAM{
     int TotalErrorCount;
     int RunningErrorCount;
 
+	BENCHMARK_TRANSFER_HANDLE TransferHandles[MAX_OUTSTANDING_TRANSFERS];
+	BENCHMARK_ISOCH_RESULTS IsochResults;
+
     unsigned char Buffer[0]
 } BENCHMARK_TRANSFER_PARAM, *PBENCHMARK_TRANSFER_PARAM;
 
-void SetTestDefaults(PPARAM TestParms);
-int GetTestDevice(PPARAM TestParms);
+void SetParamsDefaults(PPARAM TestParms);
+int GetParamsDevice(PPARAM TestParms);
 
 int ParseArgs(PARAM TestParms, int argc, char** argv);
-void ShowTestParms(PARAM TestParms);
+void ShowParms(PARAM TestParms);
 PBENCHMARK_TRANSFER_PARAM CreateTransferParam(PPARAM TestParms, int endpointID);
-DWORD TransferThreadProc(PBENCHMARK_TRANSFER_PARAM transferParam);
+DWORD TransferThread(PBENCHMARK_TRANSFER_PARAM transferParam);
 void FreeTransferParam(PBENCHMARK_TRANSFER_PARAM* transferParam);
 
 #define TRANSFER_DISPLAY(TransferParam, ReadingString, WritingString) \
@@ -159,7 +194,7 @@ void AppendLoopBuffer(
     unsigned char* buffer,
     unsigned int length
     ){
-        if(TestParms->Verify && TestParms->TestType == TestTypeLoop){
+        if(TestParms->verify && TestParms->TestType == TestTypeLoop){
             BENCHMARK_BUFFER* newVerifyBuf = malloc(
                 sizeof(BENCHMARK_BUFFER) + length
             );
@@ -179,7 +214,7 @@ void AppendLoopBuffer(
 
 int TransferSync(PBENCHMARK_TRANSFER_PARAM transferParam){
     unsigned int trasnferred;
-    bool success;
+    BOOL success;
 
     if(transferParam->Ep.PipeType & USB_ENDPOINT_DIRECTION_MASK){
         success = K.ReadPipe(
@@ -210,11 +245,11 @@ int TransferSync(PBENCHMARK_TRANSFER_PARAM transferParam){
 }
 
 //TODO : IsoTransferCb
-bool WINAPI IsoTransferCb(
+BOOL WINAPI IsoTransferCb(
     _in unsigned int packetIndex,
     _ref unsigned int* offset,
     _ref unsigned int* length,
-    _ref unsigned int* status
+    _ref unsigned int* status,
     _in void* userState
     );
 
@@ -226,13 +261,13 @@ int TransferAsync(PBENCHMARK_TRANSFER_PARAM transferParam){
 //Todo : Prepare the Data from the file
 void VerifyLoopData();
 
-void SetTestDefaults(PPARAM TestParms){
+void SetParamsDefaults(PPARAM TestParms){
     memset(TestParms, 0, sizeof(*TestParms));
 
     TestParms->vid          = 0x1004;
     TestParms->pid          = 0xA000;
-    TestParms->interface    = -1;
-    TestParms->altface      = -1;
+    TestParms->intf         = -1;
+    TestParms->altf         = -1;
     TestParms->endpoint     = 0x81;
     TestParms->transfer     = 1;
     TestParms->timeout      = 3000;
@@ -253,34 +288,34 @@ int ParseArgs(PPARAM TestParms, int argc, char** argv){
             value = atoi(&argv[i][2]);
             switch (arg){
                 case 'v':
-                    TestParms.vid = value;
+                    TestParms->vid = value;
                     break;
                 case 'p':
-                    TestParms.pid = value;
+                    TestParms->pid = value;
                     break;
                 case 'i':
-                    TestParms.interface = value;
+                    TestParms->intf = value;
                     break;
                 case 'a':
-                    TestParms.altface = value;
+                    TestParms->altf = value;
                     break;
                 case 'e':
-                    TestParms.endpoint = value;
+                    TestParms->endpoint = value;
                     break;
                 case 't':
-                    TestParms.transfer = value;
+                    TestParms->transfer = value;
                     break;
                 case 'o':
-                    TestParms.timeout = value;
+                    TestParms->timeout = value;
                     break;
                 case 'r':
-                    TestParms.repeat = value;
+                    TestParms->repeat = value;
                     break;
                 case 'l':
-                    TestParms.readlenth = value;
+                    TestParms->readlenth = value;
                     break;
                 case 'w':
-                    TestParms.writelength = value;
+                    TestParms->writelength = value;
                     break;
                 default:
                     LOGERR0("Invalid argument\n");
@@ -292,32 +327,32 @@ int ParseArgs(PPARAM TestParms, int argc, char** argv){
     return status;
 }
 
-void ShowTestParms(PARAM TestParms){
+void ShowParms(PPARAM TestParms){
     if(!TestParms)
         return;
     
-    LOGMSG0("Test Parameters:\n");
-    LOGMSG0("\tVID:             %04X\n", TestParms.vid);
-    LOGMSG0("\tPID:             %04X\n", TestParms.pid);
-    LOGMSG0("\tInterface:       %d\n", TestParms.interface);
-    LOGMSG0("\tAlt Interface:   %d\n", TestParms.altface);
-    LOGMSG0("\tEndpoint:        %02X\n", TestParms.endpoint);
-    LOGMSG0("\tTransfer:        %d\n", TestParms.transfer);
-    LOGMSG0("\tTimeout:         %d\n", TestParms.timeout);
-    LOGMSG0("\tRead Length:     %d\n", TestParms.readlenth);
-    LOGMSG0("\tWrite Length:    %d\n", TestParms.writelength);
-    LOGMSG0("\tRepeat:          %d\n", TestParms.repeat);
-    LOGMSG0("\n");
+    // LOG_MSG("%s Test Parameters:\n", );
+    LOG_MSG("\tVID:           :  %04X\n", TestParms->vid);
+    LOG_MSG("\tPID:           :  %04X\n", TestParms->pid);
+    LOG_MSG("\tInterface:     :  %d\n", TestParms->intf);
+    LOG_MSG("\tAlt Interface: :  %d\n", TestParms->altf);
+    LOG_MSG("\tEndpoint:      :  %02X\n", TestParms->endpoint);
+    LOG_MSG("\tTransfer:      :  %d\n", TestParms->transfer);
+    LOG_MSG("\tTimeout:       :  %d\n", TestParms->timeout);
+    LOG_MSG("\tRead Length:   :  %d\n", TestParms->readlenth);
+    LOG_MSG("\tWrite Length:  :  %d\n", TestParms->writelength);
+    LOG_MSG("\tRepeat:        :  %d\n", TestParms->repeat);
+    LOG_MSG("\n");
 }
 
-DWORD TransferThreadProc(PBENCHMARK_TRANSFER_PARAM transferParam){
+DWORD TransferThread(PBENCHMARK_TRANSFER_PARAM transferParam){
     int ret, i;
-    PBENCHMARK_BUFFER_HANDLE handle;
+    PBENCHMARK_TRANSFER_HANDLE handle;
     unsigned char* buffer;
 
-    transferParam->isRunning = true;
+    transferParam->isRunning = TRUE;
 
-    while(!transferParam->TestParms->IsCancelled){
+    while(!transferParam->TestParms->isCancelled){
         buffer = NULL;
         handle = NULL;
 
@@ -332,13 +367,13 @@ DWORD TransferThreadProc(PBENCHMARK_TRANSFER_PARAM transferParam){
                 buffer = transferParam->Buffer;
         }
         else{
-            LOGERR0("Invalid transfer mode %d\n",
+            LOG_ERROR("Invalid transfer mode %d\n",
                 transferParam->TestParms->TransferMode);
             goto Done;
         }
 
-        if( transferParam->TestParms->Verify &&
-            transferParam->TestParams->VerifyList &&
+        if( transferParam->TestParms->verify &&
+            transferParam->TestParms->VerifyList &&
             transferParam->TestParms->TestType == TestTypeLoop &&
             USB_ENDPOINT_DIRECTION_IN(transferParam->Ep.PipeId) && ret > 0)
         {
@@ -357,9 +392,9 @@ DWORD TransferThreadProc(PBENCHMARK_TRANSFER_PARAM transferParam){
             {
                 transferParam->TotalTimeoutCount++;
                 transferParam->RunningTimeoutCount++;
-                LOGERR0("Timeout #%d %s on EP%02Xh.. \n",
+                LOG_ERROR("Timeout #%d %s on EP%02Xh.. \n",
                     transferParam->RunningTimeoutCount,
-                    TRANSFER_DISPLAY(transferParma, "reading", "writing"),
+                    TRANSFER_DISPLAY(transferParam, "reading", "writing"),
                     transferParam->Ep.PipeId);
 
                 if(transferParam->RunningTimeoutCount > transferParam->TestParms->retry)
@@ -370,7 +405,7 @@ DWORD TransferThreadProc(PBENCHMARK_TRANSFER_PARAM transferParam){
             else{
                 transferParam->TotalErrorCount++;
                 transferParam->RunningErrorCount++;
-                LOGERR0("failed %s, %d of %d ret=%d\n",
+                LOG_ERROR("failed %s, %d of %d ret=%d\n",
                     TRANSFER_DISPLAY(transferParam, "reading", "writing"),
                     transferParam->RunningErrorCount,
                     transferParam->TestParms->retry + 1,
@@ -389,10 +424,10 @@ DWORD TransferThreadProc(PBENCHMARK_TRANSFER_PARAM transferParam){
             transferParam->RunningErrorCount = 0;
             //TODO : log the data to the file
             if(USB_ENDPOINT_DIRECTION_IN(transferParam->Ep.PipeId)){
-                LOGMSG0("Read %d bytes\n", ret);
+                LOG_MSG("Read %d bytes\n", ret);
             }
             else{
-                LOGMSG0("Wrote %d bytes\n", ret);
+                LOG_MSG("Wrote %d bytes\n", ret);
             }
 
         }
@@ -402,30 +437,30 @@ DWORD TransferThreadProc(PBENCHMARK_TRANSFER_PARAM transferParam){
 
 Done:
 
-    for(i = 0; i < transferParam->TestParms->BufferCount; i++){
+    for(i = 0; i < transferParam->TestParms->bufferCount; i++){
         if(transferParam->TransferHandles[i].Overlapped.hEvent){
-            if(transferParam->TransferHandle[i].InUse){
+            if(transferParam->TransferHandles[i].InUse){
                 if(!K.AbortPipe(
                     transferParam->TestParms->InterfaceHandle,
-                    transferParam->TransferHandles[i].PipeId)
-                    )
+                    transferParam->Ep.PipeId) &&
+                    !transferParam->TestParms->isUserAborted)
                 {
                     ret = WinError(0);
-                    LOGERR0("failed cancelling transfer ret = %d\n", ret);
+                    LOG_ERR("failed cancelling transfer ret = %d\n", ret);
                 }
                 else{
                     CloseHandle(transferParam->TransferHandles[i].Overlapped.hEvent);
                     transferParam->TransferHandles[i].Overlapped.hEvent = NULL;
-                    transferParam->TransferHandles[i].InUse = false;
+                    transferParam->TransferHandles[i].InUse = FALSE;
                 }
             }
             Sleep(0);
         }
     }
 
-    for(i = 0; i < transferParam->TestParms->BufferCount; i++){
+    for(i = 0; i < transferParam->TestParms->bufferCount; i++){
         if(transferParam->TransferHandles[i].Overlapped.hEvent){
-            if(transferParma->TransferHandles[i].InUse){
+            if(transferParam->TransferHandles[i].InUse){
                 WaitForSingledObject(
                     transferParam->TransferHandles[i].Overlapped.hEvent,
                     transferParam->TestParms->timeout
@@ -440,24 +475,24 @@ Done:
             CloseHandle(transferParam->TransferHandles[i].Overlapped.hEvent);
             transferParam->TransferHandles[i].Overlapped.hEvent = NULL;
         }
-        transferParam->TransferHandles[i].InUse = false;
+        transferParam->TransferHandles[i].InUse = FALSE;
     }
 
-    transferParam->isRunning = false;
+    transferParam->isRunning = FALSE;
     return 0;
 }
 
 int main(int argc, char** argv){
     PARAM TestParms;
-    PBENMARK_TRANSFER_PARAM ReadTest = NULL;
-    PBENMARK_TRANSFER_PARAM WriteTest = NULL;
+    PBENCHMARK_TRANSFER_PARAM ReadTest = NULL;
+    PBENCHMARK_TRANSFER_PARAM WriteTest = NULL;
     int key;
-    long ec
+    long ec;
     unsigned int count, length;
 
-    // todo : when argc == 1, print help message
+    // todo : when argc == 1, print usage message
     if(argc == 1){
-        // print help message
+        // print usage message
         LOGERR0("Invalid argument\n");
         return -1;
     }
@@ -469,7 +504,7 @@ int main(int argc, char** argv){
 
     if(!LstK_Init(&TestParms.DeviceList, 0)){
         ec = GetLastError();
-        LOGERR0("Failed to initialize device list ec=%08Xh\n", ec);
+        LOG_ERROR("Failed to initialize device list ec=%08Xh\n", ec);
         goto Done;
     }
 
@@ -480,7 +515,7 @@ int main(int argc, char** argv){
         goto Done;
     }
 
-    if(TestParms.UseList){
+    if(TestParms.useList){
         if(GetTestDeviceFromList(&TestParms) < 0){
             goto Done;
         }
@@ -498,14 +533,16 @@ Done:
     if(TestParms.InterfaceHandle){
         K.SetAltInterface(
                 TestParms.InterfaceHandle,
-                TestParms.InterfaceNumber,
-                TestParms.AltInterfaceNumber
+                TestParms.InterfaceDescriptor.bInterfaceNumber,
+                FALSE,
+                TestParms.defaultAltSetting
         );
         K.Free(TestParms.InterfaceHandle);
+
         TestParms.InterfaceHandle = NULL;
     }
 
-    if(!TestParms.Use_UsbK_Init){
+    if(!TestParms.use_UsbK_Init){
         if(TestParms.DeviceHandle){
             CloseHandle(TestParms.DeviceHandle);
             TestParms.DeviceHandle = NULL;
@@ -513,7 +550,7 @@ Done:
     }
 
     if(TestParms.VerifyBuffer){
-        PBENMARK_BUFFER verifyBuffer, verifyListTemp;
+        PBENCHMARK_BUFFER verifyBuffer, verifyListTemp;
 
         free(TestParms.VerifyBuffer);
         TestParms.VerifyBuffer = NULL;
