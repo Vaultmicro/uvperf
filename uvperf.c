@@ -6,21 +6,24 @@
 *   and report the results.
 *
 *   Usage:
-*   uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -tTRANSFER -oTIMEOUT -rlLENGTH -wlLENGTH -rREPEAT
+*   uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE -tTIMEOUT -lREADLENGTH -wWRITELENGTH -rREPEAT -R|-W|-L
 *
 *   -vVID           USB Vendor ID
 *   -pPID           USB Product ID
 *   -iINTERFACE     USB Interface
 *   -aAltInterface  USB Alternate Interface
 *   -eENDPOINT      USB Endpoint
-*   -tTRANSFER      0 = isochronous, 1 = bulk
-*   -oTIMEOUT       USB Transfer Timeout
-*   -rlLENGTH       Length of read transfers
-*   -wlLENGTH       Length of write transfers
+*   -mTRANSFERMODE  0 = isochronous, 1 = bulk
+*   -tTIMEOUT       USB Transfer Timeout
+*   -lREADLENGTH    Length of read transfers
+*   -wWRITELENGTH   Length of write transfers
 *   -rREPEAT        Number of transfers to perform
+*   -R              Read Test
+*   -W              Write Test
+*   -L              Loop Test
 *
 *   Example:
-*   uvperf -v0x1004 -p0xa000 -i0 -a0 -e0x81 -t1 -o1000 -l1024 -r1000 -x1
+*   uvperf -v0x1004 -p0xa000 -i0 -a0 -e0x81 -m1 -t1000 -l1024 -r1000 -R
 *
 *   This will perform 1000 bulk transfers of 1024 bytes to endpoint 0x81
 *   on interface 0, alternate setting 0 of a device with VID 0x1004 and PID 0xA000.
@@ -43,6 +46,8 @@
 #pragma warning(disable: 4127)
 #pragma warning(disable: 4996)
 #pragma comment(lib, "libusbK.lib")
+
+#define LOGVDAT(format, ...) printf("[data-mismatch] " format, ##__VA_ARGS__)
 
 // #define LOG(LogTypeString, format, ...) printf("%s[" __FUNCTION__"] "format, LogTypeString, ##__VA_ARGS__)
 #define LOG(LogTypeString, format, ...) printf("%s[%s] " format, LogTypeString, __FUNCTION__, __VA_ARGS__)
@@ -67,35 +72,35 @@ static LPCSTR DrvIdNames[8] = { "libusbK", "libusb0", "WinUSB", "libusb0 filter"
 KUSB_DRIVER_API K;
 CRITICAL_SECTION DisplayCriticalSection;
 
-typedef struct _BENCHMARK_BUFFER {
+typedef struct _UVPERF_BUFFER {
     PUCHAR Data;
     LONG            dataLenth;
     LONG            syncFailed;
 
-    struct _BENCHMARK_BUFFER* next;
-    struct _BENCHMARK_BUFFER* prev;
-} BENCHMARK_BUFFER, * PBENCHMARK_BUFFER;
+    struct _UVPERF_BUFFER* next;
+    struct _UVPERF_BUFFER* prev;
+} UVPERF_BUFFER, * PUVPERF_BUFFER;
 
-typedef enum _BENCHMARK_DEVICE_TEST_TYPE {
+typedef enum _UVPERF_DEVICE_TRANSFER_TYPE {
     TestTypeNone = 0x00,
     TestTypeRead = 0x01,
     TestTypeWrite = 0x02,
     TestTypeLoop = TestTypeRead | TestTypeWrite,
-} BENCHMARK_DEVICE_TEST_TYPE, * PBENCHMARK_DEVICE_TEST_TYPE;
+} UVPERF_DEVICE_TRANSFER_TYPE, * PUVPERF_DEVICE_TRANSFER_TYPE;
 
-typedef enum _BENCHMARK_TRANSFER_MODE {
+typedef enum _UVPERF_TRANSFER_MODE {
     TRANSFER_MODE_SYNC,
     TRANSFER_MODE_ASYNC,
-} BENCHMARK_TRANSFER_MODE;
+} UVPERF_TRANSFER_MODE;
 
-typedef struct _PARAM {
+typedef struct _UVPERF_PARAM {
     int vid;
     int pid;
     int intf;
     int altf;
     int endpoint;
-    int transfer;
     int timeout;
+    int refresh;
     int retry;
     int bufferlength;
     int readlenth;
@@ -107,8 +112,8 @@ typedef struct _PARAM {
     BOOL useList;
     BOOL verify;
     BOOL verifyDetails;
-    enum BENCHMARK_DEVICE_TEST_TYPE TestType;
-    enum BENCHMARK_TRANSFER_MODE TransferMode;
+    enum UVPERF_DEVICE_TRANSFER_TYPE TestType;
+    enum UVPERF_TRANSFER_MODE TransferMode;
 
     KLST_HANDLE DeviceList;
     KLST_DEVINFO_HANDLE SelectedDeviceProfile;
@@ -123,7 +128,7 @@ typedef struct _PARAM {
     BOOL isUserAborted;
 
     volatile long verifyLock;
-    BENCHMARK_BUFFER* VerifyList;
+    UVPERF_BUFFER* VerifyList;
 
     unsigned char verifyBuffer;
     unsigned short verifyBufferSize;
@@ -142,7 +147,7 @@ typedef struct _PARAM {
     BYTE* VerifyBuffer;
 
     unsigned char defaultAltSetting;
-} PARAM, * PPARAM;
+} UVPERF_PARAM, * PUVPERF_PARAM;
 
 typedef struct _BENCHMARK_ISOCH_RESULTS
 {
@@ -152,7 +157,7 @@ typedef struct _BENCHMARK_ISOCH_RESULTS
     UINT TotalPackets;
 }BENCHMARK_ISOCH_RESULTS;
 
-typedef struct _BENCHMARK_TRANSFER_HANDLE
+typedef struct _UVPERF_TRANSFER_HANDLE
 {
     KISOCH_HANDLE IsochHandle;
     OVERLAPPED Overlapped;
@@ -161,10 +166,10 @@ typedef struct _BENCHMARK_TRANSFER_HANDLE
     INT DataMaxLength;
     INT ReturnCode;
     BENCHMARK_ISOCH_RESULTS IsochResults;
-} BENCHMARK_TRANSFER_HANDLE, * PBENCHMARK_TRANSFER_HANDLE;
+} UVPERF_TRANSFER_HANDLE, * PUVPERF_TRANSFER_HANDLE;
 
-typedef struct _BENCHMARK_TRANSFER_PARAM {
-    PPARAM TestParms;
+typedef struct _UVPERF_TRANSFER_PARAM {
+    PUVPERF_PARAM TestParms;
     unsigned int frameNumber;
     unsigned int numberOFIsoPackets;
     HANDLE ThreadHandle;
@@ -190,11 +195,11 @@ typedef struct _BENCHMARK_TRANSFER_PARAM {
     int TotalErrorCount;
     int RunningErrorCount;
 
-    BENCHMARK_TRANSFER_HANDLE TransferHandles[MAX_OUTSTANDING_TRANSFERS];
+    UVPERF_TRANSFER_HANDLE TransferHandles[MAX_OUTSTANDING_TRANSFERS];
     BENCHMARK_ISOCH_RESULTS IsochResults;
 
     unsigned char Buffer[0];
-} BENCHMARK_TRANSFER_PARAM, * PBENCHMARK_TRANSFER_PARAM;
+} UVPERF_TRANSFER_PARAM, * PUVPERF_TRANSFER_PARAM;
 
 #include <pshpack1.h>
 typedef struct _KBENCH_CONTEXT_LSTK
@@ -203,20 +208,21 @@ typedef struct _KBENCH_CONTEXT_LSTK
 } KBENCH_CONTEXT_LSTK, * PKBENCH_CONTEXT_LSTK;
 #include <poppack.h>
 
-BOOL Bench_Open(__in PPARAM TestParms);
+BOOL Bench_Open(__in PUVPERF_PARAM TestParms);
 
 
 void ShowUsage();
-void SetParamsDefaults(PPARAM TestParms);
-int GetParamsDevice(PPARAM TestParms);
+void SetParamsDefaults(PUVPERF_PARAM TestParms);
+int GetParamsDevice(PUVPERF_PARAM TestParms);
 
-int ParseArgs(PPARAM TestParms, int argc, char** argv);
-void ShowParms(PPARAM TestParms);
-PBENCHMARK_TRANSFER_PARAM CreateTransferParam(PPARAM TestParms, int endpointID);
-void GetAverageBytesSec(PBENCHMARK_TRANSFER_PARAM transferParam, DOUBLE* bps);
-void GetCurrentBytesSec(PBENCHMARK_TRANSFER_PARAM transferParam, DOUBLE* bps);
-DWORD TransferThread(PBENCHMARK_TRANSFER_PARAM transferParam);
-void FreeTransferParam(PBENCHMARK_TRANSFER_PARAM* transferParamRef);
+int ParseArgs(PUVPERF_PARAM TestParms, int argc, char** argv);
+void ShowParms(PUVPERF_PARAM TestParms);
+PUVPERF_TRANSFER_PARAM CreateTransferParam(PUVPERF_PARAM TestParms, int endpointID);
+void GetAverageBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE* bps);
+void GetCurrentBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE* bps);
+void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM writeParam);
+DWORD TransferThread(PUVPERF_TRANSFER_PARAM transferParam);
+void FreeTransferParam(PUVPERF_TRANSFER_PARAM* transferParamRef);
 
 #define TRANSFER_DISPLAY(TransferParam, ReadingString, WritingString) \
 	((TransferParam->Ep.PipeId & USB_ENDPOINT_DIRECTION_MASK) ? ReadingString : WritingString)
@@ -248,19 +254,19 @@ LONG WinError(__in_opt DWORD errorCode) {
 }
 
 void AppendLoopBuffer(
-    PPARAM TestParms,
+    PUVPERF_PARAM TestParms,
     unsigned char* buffer,
     unsigned int length)
 {
     if (TestParms->verify && TestParms->TestType == TestTypeLoop) {
-        BENCHMARK_BUFFER* newVerifyBuf = malloc(
-            sizeof(BENCHMARK_BUFFER) + length
+        UVPERF_BUFFER* newVerifyBuf = malloc(
+            sizeof(UVPERF_BUFFER) + length
         );
 
-        memset(newVerifyBuf, 0, sizeof(BENCHMARK_BUFFER));
+        memset(newVerifyBuf, 0, sizeof(UVPERF_BUFFER));
 
         newVerifyBuf->Data = (unsigned char*)newVerifyBuf
-            + sizeof(BENCHMARK_BUFFER);
+            + sizeof(UVPERF_BUFFER);
         newVerifyBuf->dataLenth = length;
         memcpy(newVerifyBuf->Data, buffer, length);
 
@@ -271,7 +277,7 @@ void AppendLoopBuffer(
 }
 
 
-BOOL Bench_Open(__in PPARAM TestParams) {
+BOOL Bench_Open(__in PUVPERF_PARAM TestParams) {
     UCHAR altSetting;
     KUSB_HANDLE associatedHandle;
     UINT transferred;
@@ -431,11 +437,79 @@ BOOL Bench_Open(__in PPARAM TestParams) {
     return FALSE;
 }
 
-int TransferSync(PBENCHMARK_TRANSFER_PARAM transferParam) {
+int VerifyData(PUVPERF_TRANSFER_PARAM transferParam, BYTE* data, INT dataLength)
+{
+
+	WORD verifyDataSize = transferParam->TestParms->verifyBufferSize;
+	BYTE* verifyData = transferParam->TestParms->VerifyBuffer;
+	BYTE keyC = 0;
+	BOOL seedKey = TRUE;
+	INT dataLeft = dataLength;
+	INT dataIndex = 0;
+	INT packetIndex = 0;
+	INT verifyIndex = 0;
+
+	while (dataLeft > 1)
+	{
+		verifyDataSize = dataLeft > transferParam->TestParms->verifyBufferSize ? transferParam->TestParms->verifyBufferSize : (WORD)dataLeft;
+
+		if (seedKey)
+			keyC = data[dataIndex + 1];
+		else
+		{
+			if (data[dataIndex + 1] == 0)
+			{
+				keyC = 0;
+			}
+			else
+			{
+				keyC++;
+			}
+		}
+		seedKey = FALSE;
+		// Index 0 is always 0.
+		// The key is always at index 1
+		verifyData[1] = keyC;
+
+		if (memcmp(&data[dataIndex], verifyData, verifyDataSize) != 0)
+		{
+			// Packet verification failed.
+
+			// Reset the key byte on the next packet.
+			seedKey = TRUE;
+
+			LOGVDAT("Packet=#%d Data=#%d\n", packetIndex, dataIndex);
+
+			if (transferParam->TestParms->verifyDetails)
+			{
+				for (verifyIndex = 0; verifyIndex < verifyDataSize; verifyIndex++)
+				{
+					if (verifyData[verifyIndex] == data[dataIndex + verifyIndex])
+						continue;
+
+					LOGVDAT("packet-offset=%d expected %02Xh got %02Xh\n",
+						verifyIndex,
+						verifyData[verifyIndex],
+						data[dataIndex + verifyIndex]);
+
+				}
+			}
+		}
+
+		// Move to the next packet.
+		packetIndex++;
+		dataLeft -= verifyDataSize;
+		dataIndex += verifyDataSize;
+	}
+
+	return 0;
+}
+
+int TransferSync(PUVPERF_TRANSFER_PARAM transferParam) {
     unsigned int trasnferred;
     BOOL success;
 
-    if (transferParam->Ep.PipeType & USB_ENDPOINT_DIRECTION_MASK) {
+    if (transferParam->Ep.PipeId & USB_ENDPOINT_DIRECTION_MASK) {
         success = K.ReadPipe(
             transferParam->TestParms->InterfaceHandle,
             transferParam->Ep.PipeId,
@@ -475,50 +549,57 @@ BOOL WINAPI IsoTransferCb(
 }
 
 //TODO : TransferAsync
-int TransferAsync(PBENCHMARK_TRANSFER_PARAM transferParam) {
+int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam) {
     return 0;
 }
 
+//TODO : TransferAsync
 void VerifyLoopData() {
     return;
 }
 
 void ShowUsage(){
-    LOG_MSG("Usage: uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -tTRANSFER -oTIMEOUT -rlLENGTH -wlLENGTH -rREPEAT\n");
+    LOG_MSG("Usage: uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE -tTIMEOUT -lREADLENGTH -wWRITELENGTH -rREPEAT -R|-W|-L\n");
     LOG_MSG("\t-vVID           USB Vendor ID\n");
     LOG_MSG("\t-pPID           USB Product ID\n");
     LOG_MSG("\t-iINTERFACE     USB Interface\n");
     LOG_MSG("\t-aAltInterface  USB Alternate Interface\n");
     LOG_MSG("\t-eENDPOINT      USB Endpoint\n");
-    LOG_MSG("\t-tTRANSFER      0 = isochronous, 1 = bulk\n");
-    LOG_MSG("\t-oTIMEOUT       USB Transfer Timeout\n");
-    LOG_MSG("\t-rlLENGTH       Length of read transfers\n");
-    LOG_MSG("\t-wlLENGTH       Length of write transfers\n");
+    LOG_MSG("\t-mTRANSFER      0 = isochronous, 1 = bulk\n");
+    LOG_MSG("\t-tTIMEOUT       USB Transfer Timeout\n");
+    LOG_MSG("\t-lREADLENGTH    Length of read transfers\n");
+    LOG_MSG("\t-wWRITELENGTH   Length of write transfers\n");
     LOG_MSG("\t-rREPEAT        Number of transfers to perform\n");
+    LOG_MSG("\t-R              Read Test\n");
+    LOG_MSG("\t-W              Write Test\n");
+    LOG_MSG("\t-L              Loop Test\n");
     LOG_MSG("\n");
     LOG_MSG("Example:\n");
-    LOG_MSG("uvperf -v0x1004 -p0xa000 -i0 -a0 -e0x81 -t1 -o1000 -l1024 -r1000 -x1\n");
+    LOG_MSG("uvperf -v0x1004 -p0xa000 -i0 -a0 -e0x81 -m1 -t1000 -l1024 -r1000 -R\n");
     LOG_MSG("This will perform 1000 bulk transfers of 1024 bytes to endpoint 0x81\n");
     LOG_MSG("on interface 0, alternate setting 0 of a device with VID 0x1004 and PID 0xA000.\n");
     LOG_MSG("The transfers will have a timeout of 1000ms.\n");
 }
 
-void SetParamsDefaults(PPARAM TestParms) {
+void SetParamsDefaults(PUVPERF_PARAM TestParms) {
     memset(TestParms, 0, sizeof(*TestParms));
 
     TestParms->vid = 0x1004;
     TestParms->pid = 0xA000;
     TestParms->intf = -1;
     TestParms->altf = -1;
+    TestParms->TransferMode = TRANSFER_MODE_SYNC;
+    TestParms->TestType = TestTypeNone;
     TestParms->endpoint = 0x81;
-    TestParms->transfer = 1;
     TestParms->timeout = 3000;
     TestParms->bufferlength = 1024;
+    TestParms->refresh = 1000;
     TestParms->readlenth = TestParms->bufferlength;
     TestParms->writelength = TestParms->bufferlength;
+    TestParms->bufferCount = 1;
 }
 
-int GetParamsDevice(PPARAM TestParms) {
+int GetParamsDevice(PUVPERF_PARAM TestParms) {
     char id[MAX_PATH];
     KLST_DEVINFO_HANDLE deviceInfo = NULL;
 
@@ -555,7 +636,7 @@ int GetParamsDevice(PPARAM TestParms) {
     return ERROR_SUCCESS;
 }
 
-int ParseArgs(PPARAM TestParms, int argc, char** argv) {
+int ParseArgs(PUVPERF_PARAM TestParms, int argc, char** argv) {
     int i;
     int arg;
     char* temp;
@@ -583,10 +664,23 @@ int ParseArgs(PPARAM TestParms, int argc, char** argv) {
             case 'e':
                 TestParms->endpoint = value;
                 break;
-            case 't':
-                TestParms->transfer = value;
+            case 'b':
+                TestParms->bufferCount = value;
+                if(TestParms->bufferCount > 1){
+                    LOGMSG0("Isochronous transfer doesn't supported yet\n");
+                    status = -1;
+                    TestParms->TransferMode = TRANSFER_MODE_ASYNC;
+                }
                 break;
-            case 'o':
+            case 'm':
+                // TODO : ISOTRANSFER
+                if(value == 0){
+                    LOGMSG0("Isochronous transfer doesn't supported yet\n");
+                    status = -1;
+                }
+                TestParms->TransferMode = (value ? TRANSFER_MODE_SYNC : TRANSFER_MODE_ASYNC);
+                break;
+            case 't':
                 TestParms->timeout = value;
                 break;
             case 'r':
@@ -617,17 +711,18 @@ int ParseArgs(PPARAM TestParms, int argc, char** argv) {
     return status;
 }
 
-void ShowParms(PPARAM TestParms) {
+void ShowParms(PUVPERF_PARAM TestParms) {
     if (!TestParms)
         return;
 
     // LOG_MSG("%s Test Parameters:\n", );
-    LOG_MSG("\tVID:           :  %04X\n", TestParms->vid);
-    LOG_MSG("\tPID:           :  %04X\n", TestParms->pid);
+    LOG_MSG("\tDriver         :  %s\n", GetDrvIdString(TestParms->SelectedDeviceProfile->DriverID));
+    LOG_MSG("\tVID:           :  0x%04X\n", TestParms->vid);
+    LOG_MSG("\tPID:           :  0x%04X\n", TestParms->pid);
     LOG_MSG("\tInterface:     :  %d\n", TestParms->intf);
     LOG_MSG("\tAlt Interface: :  %d\n", TestParms->altf);
-    LOG_MSG("\tEndpoint:      :  %02X\n", TestParms->endpoint);
-    LOG_MSG("\tTransfer:      :  %d\n", TestParms->transfer);
+    LOG_MSG("\tEndpoint:      :  0x%02X\n", TestParms->endpoint);
+    LOG_MSG("\tTransfer mode  :  %s\n", TestParms->TransferMode ? "Isochronous" : "Bulk");
     LOG_MSG("\tTimeout:       :  %d\n", TestParms->timeout);
     LOG_MSG("\tRead Length:   :  %d\n", TestParms->readlenth);
     LOG_MSG("\tWrite Length:  :  %d\n", TestParms->writelength);
@@ -635,9 +730,81 @@ void ShowParms(PPARAM TestParms) {
     LOG_MSG("\n");
 }
 
-DWORD TransferThread(PBENCHMARK_TRANSFER_PARAM transferParam) {
+void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM writeParam){
+	static UVPERF_TRANSFER_PARAM gReadParamTransferParam, gWriteParamTransferParam;
+	DOUBLE bpsReadOverall = 0;
+	DOUBLE bpsReadLastTransfer = 0;
+	DOUBLE bpsWriteOverall = 0;
+	DOUBLE bpsWriteLastTransfer = 0;
+	UINT zlp = 0;
+	UINT totalPackets = 0;
+	UINT totalIsoPackets = 0;
+	UINT goodIsoPackets = 0;
+	UINT badIsoPackets = 0;
+
+	// LOCK the display critical section
+	EnterCriticalSection(&DisplayCriticalSection);
+
+	if (readParam)
+		memcpy(&gReadParamTransferParam, readParam, sizeof(UVPERF_TRANSFER_PARAM));
+
+	if (writeParam)
+		memcpy(&gWriteParamTransferParam, writeParam, sizeof(UVPERF_TRANSFER_PARAM));
+
+	// UNLOCK the display critical section
+	LeaveCriticalSection(&DisplayCriticalSection);
+
+	if (readParam != NULL && (!gReadParamTransferParam.StartTick || gReadParamTransferParam.StartTick >= gReadParamTransferParam.LastTick)){
+		LOG_MSG("Synchronizing Read %d..\n", abs(gReadParamTransferParam.Packets));
+	}
+	if (writeParam != NULL && (!gWriteParamTransferParam.StartTick || gWriteParamTransferParam.StartTick >= gWriteParamTransferParam.LastTick)){
+		LOG_MSG("Synchronizing Write %d..\n", abs(gWriteParamTransferParam.Packets));
+	}
+	else{
+		if (readParam){
+			GetAverageBytesSec(&gReadParamTransferParam, &bpsReadOverall);
+			GetCurrentBytesSec(&gReadParamTransferParam, &bpsReadLastTransfer);
+			if (gReadParamTransferParam.LastTransferred == 0) zlp++;
+			readParam->LastStartTick = 0;
+			totalPackets += gReadParamTransferParam.Packets;
+			totalIsoPackets += gReadParamTransferParam.IsochResults.TotalPackets;
+			goodIsoPackets += gReadParamTransferParam.IsochResults.GoodPackets;
+			badIsoPackets += gReadParamTransferParam.IsochResults.BadPackets;
+
+		}
+		if (writeParam){
+			GetAverageBytesSec(&gWriteParamTransferParam, &bpsWriteOverall);
+			GetCurrentBytesSec(&gWriteParamTransferParam, &bpsWriteLastTransfer);
+			if (gWriteParamTransferParam.LastTransferred == 0) zlp++;
+			writeParam->LastStartTick = 0;
+			totalPackets += gWriteParamTransferParam.Packets;
+			totalIsoPackets += gWriteParamTransferParam.IsochResults.TotalPackets;
+			goodIsoPackets += gWriteParamTransferParam.IsochResults.GoodPackets;
+			badIsoPackets += gWriteParamTransferParam.IsochResults.BadPackets;
+		}
+
+		if (totalIsoPackets){
+			LOG_MSG("Avg. Bytes/s: %.2f Transfers: %d Bytes/s: %.2f ISO-Packets (Total/Good/Bad):%u/%u/%u\n",
+				bpsReadOverall + bpsWriteOverall, totalPackets, bpsReadLastTransfer + bpsWriteLastTransfer, totalIsoPackets, goodIsoPackets, badIsoPackets);
+		}
+		else{
+			if (zlp){
+				LOG_MSG("Avg. Bytes/s: %.2f Transfers: %d %u Zero-length-transfer(s)\n",
+					bpsReadOverall + bpsWriteOverall, totalPackets, zlp);
+			}
+			else{
+		    	LOG_MSG("Avg. Bytes/s: %.2f Transfers: %d Bytes/s: %.2f\n",
+					bpsReadOverall + bpsWriteOverall, totalPackets, bpsReadLastTransfer + bpsWriteLastTransfer);
+			}
+		}
+	}
+
+}
+
+
+DWORD TransferThread(PUVPERF_TRANSFER_PARAM transferParam) {
     int ret, i;
-    PBENCHMARK_TRANSFER_HANDLE handle;
+    PUVPERF_TRANSFER_HANDLE handle;
     unsigned char* buffer;
 
     transferParam->isRunning = TRUE;
@@ -646,12 +813,12 @@ DWORD TransferThread(PBENCHMARK_TRANSFER_PARAM transferParam) {
         buffer = NULL;
         handle = NULL;
 
-        if (transferParam->TestParms->TransferMode == TransferSync) {
+        if (transferParam->TestParms->TransferMode == TRANSFER_MODE_SYNC) {
             ret = TransferSync(transferParam);
             if (ret >= 0)
                 buffer = transferParam->Buffer;
         }
-        else if (transferParam->TestParms->TransferMode == TransferAsync) {
+        else if (transferParam->TestParms->TransferMode == TRANSFER_MODE_ASYNC) {
             ret = TransferAsync(transferParam);
             if ((handle) && ret >= 0)
                 buffer = transferParam->Buffer;
@@ -714,15 +881,44 @@ DWORD TransferThread(PBENCHMARK_TRANSFER_PARAM transferParam) {
             transferParam->RunningErrorCount = 0;
             //TODO : log the data to the file
             if (USB_ENDPOINT_DIRECTION_IN(transferParam->Ep.PipeId)) {
-                LOG_MSG("Read %d bytes\n", ret);
+                // LOG_MSG("Read %d bytes\n", ret);
+                if (transferParam->TestParms->verify && transferParam->TestParms->TestType != TestTypeLoop){
+					VerifyData(transferParam, buffer, ret);
+				}
             }
             else {
-                LOG_MSG("Wrote %d bytes\n", ret);
+                // LOG_MSG("Wrote %d bytes\n", ret);
             }
 
         }
 
-        //TODO : get the time
+		EnterCriticalSection(&DisplayCriticalSection);
+
+		if (!transferParam->StartTick && transferParam->Packets >= 0)
+		{
+			transferParam->StartTick = GetTickCount();
+			transferParam->LastStartTick = transferParam->StartTick;
+			transferParam->LastTick = transferParam->StartTick;
+
+			transferParam->LastTransferred = 0;
+			transferParam->TotalTransferred = 0;
+			transferParam->Packets = 0;
+		}
+		else
+		{
+			if (!transferParam->LastStartTick)
+			{
+				transferParam->LastStartTick = transferParam->LastTick;
+				transferParam->LastTransferred = 0;
+			}
+			transferParam->LastTick = GetTickCount();
+
+			transferParam->LastTransferred += ret;
+			transferParam->TotalTransferred += ret;
+			transferParam->Packets++;
+		}
+
+		LeaveCriticalSection(&DisplayCriticalSection);
     }
 
 Done:
@@ -772,7 +968,7 @@ Done:
     return 0;
 }
 
-int CreateVerifyBuffer(PPARAM TestParam, WORD endpointMaxPacketSize)
+int CreateVerifyBuffer(PUVPERF_PARAM TestParam, WORD endpointMaxPacketSize)
 {
     int i;
     BYTE indexC = 0;
@@ -794,8 +990,8 @@ int CreateVerifyBuffer(PPARAM TestParam, WORD endpointMaxPacketSize)
     return 0;
 }
 
-void FreeTransferParam(PBENCHMARK_TRANSFER_PARAM* transferParamRef) {
-    PBENCHMARK_TRANSFER_PARAM pTransferParam;
+void FreeTransferParam(PUVPERF_TRANSFER_PARAM* transferParamRef) {
+    PUVPERF_TRANSFER_PARAM pTransferParam;
     int i;
     if ((!transferParamRef) || !*transferParamRef) return;
     pTransferParam = *transferParamRef;
@@ -821,9 +1017,9 @@ void FreeTransferParam(PBENCHMARK_TRANSFER_PARAM* transferParamRef) {
     *transferParamRef = NULL;
 }
 
-PBENCHMARK_TRANSFER_PARAM CreateTransferParam(PPARAM TestParam, int endpointID)
+PUVPERF_TRANSFER_PARAM CreateTransferParam(PUVPERF_PARAM TestParam, int endpointID)
 {
-    PBENCHMARK_TRANSFER_PARAM transferParam = NULL;
+    PUVPERF_TRANSFER_PARAM transferParam = NULL;
     int pipeIndex, bufferIndex;
     int allocSize;
 
@@ -865,8 +1061,8 @@ PBENCHMARK_TRANSFER_PARAM CreateTransferParam(PPARAM TestParam, int endpointID)
     TestParam->bufferlength = max(TestParam->bufferlength, TestParam->readlenth);
     TestParam->bufferlength = max(TestParam->bufferlength, TestParam->writelength);
 
-    allocSize = sizeof(BENCHMARK_TRANSFER_PARAM) + (TestParam->bufferlength * TestParam->bufferCount);
-    transferParam = (PBENCHMARK_TRANSFER_PARAM)malloc(allocSize);
+    allocSize = sizeof(UVPERF_TRANSFER_PARAM) + (TestParam->bufferlength * TestParam->bufferCount);
+    transferParam = (PUVPERF_TRANSFER_PARAM)malloc(allocSize);
 
     if (transferParam)
     {
@@ -883,7 +1079,7 @@ PBENCHMARK_TRANSFER_PARAM CreateTransferParam(PPARAM TestParam, int endpointID)
 
             if (!transferParam->Ep.MaximumBytesPerInterval)
             {
-                LOG_ERROR("Unable to determine 'MaximumBytesPerInterval' for isochornous pipe %02X\n", transferParam->Ep.PipeId);
+                LOG_ERROR("Unable to determine 'MaximumBytesPerInterval' for isochronous pipe %02X\n", transferParam->Ep.PipeId);
                 LOGERR0("- Device firmware may be incorrectly configured.");
                 FreeTransferParam(&transferParam);
                 goto Done;
@@ -893,7 +1089,7 @@ PBENCHMARK_TRANSFER_PARAM CreateTransferParam(PPARAM TestParam, int endpointID)
             if (numIsoPackets == 0 || ((numIsoPackets % 8)) || transferParam->TestParms->bufferlength % transferParam->Ep.MaximumBytesPerInterval)
             {
                 const UINT minBufferSize = transferParam->Ep.MaximumBytesPerInterval * 8;
-                LOG_ERROR("Buffer size is not correct for isochornous pipe %02X\n", transferParam->Ep.PipeId);
+                LOG_ERROR("Buffer size is not correct for isochronous pipe %02X\n", transferParam->Ep.PipeId);
                 LOG_ERROR("- Buffer size must be an interval of %u\n", minBufferSize);
                 FreeTransferParam(&transferParam);
                 goto Done;
@@ -908,7 +1104,7 @@ PBENCHMARK_TRANSFER_PARAM CreateTransferParam(PPARAM TestParam, int endpointID)
 
                 if (!IsochK_Init(&transferParam->TransferHandles[bufferIndex].IsochHandle, TestParam->InterfaceHandle, transferParam->Ep.PipeId, numIsoPackets, transferParam->TransferHandles[bufferIndex].Data, transferParam->TestParms->bufferlength))
                 {
-                    LOG_ERROR("IsochK_Init failed for isochornous pipe %02X\n", transferParam->Ep.PipeId);
+                    LOG_ERROR("IsochK_Init failed for isochronous pipe %02X\n", transferParam->Ep.PipeId);
                     LOG_ERROR("- ErrorCode = %u\n", GetLastError());
                     FreeTransferParam(&transferParam);
                     goto Done;
@@ -916,7 +1112,7 @@ PBENCHMARK_TRANSFER_PARAM CreateTransferParam(PPARAM TestParam, int endpointID)
 
                 if (!IsochK_SetPacketOffsets(transferParam->TransferHandles[bufferIndex].IsochHandle, transferParam->Ep.MaximumBytesPerInterval))
                 {
-                    LOG_ERROR("IsochK_SetPacketOffsets failed for isochornous pipe %02X\n", transferParam->Ep.PipeId);
+                    LOG_ERROR("IsochK_SetPacketOffsets failed for isochronous pipe %02X\n", transferParam->Ep.PipeId);
                     LOG_ERROR("- ErrorCode = %u\n", GetLastError());
                     FreeTransferParam(&transferParam);
                     goto Done;
@@ -981,7 +1177,7 @@ Done:
     return transferParam;
 }
 
-void GetAverageBytesSec(PBENCHMARK_TRANSFER_PARAM transferParam, DOUBLE* bps){
+void GetAverageBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE* bps){
     DWORD elapsedSeconds;
     if (!transferParam) return;
 
@@ -993,7 +1189,7 @@ void GetAverageBytesSec(PBENCHMARK_TRANSFER_PARAM transferParam, DOUBLE* bps){
         *bps = 0;
     }
 }
-void GetCurrentBytesSec(PBENCHMARK_TRANSFER_PARAM transferParam, DOUBLE* bps){
+void GetCurrentBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE* bps){
     DWORD elapsedSeconds;
     if (!transferParam) return;
 
@@ -1006,63 +1202,63 @@ void GetCurrentBytesSec(PBENCHMARK_TRANSFER_PARAM transferParam, DOUBLE* bps){
     }
 }
 
-void ShowTransfer(PBENCHMARK_TRANSFER_PARAM transferParam){
+void ShowTransfer(PUVPERF_TRANSFER_PARAM transferParam){
 	DOUBLE bpsAverage;
 	DOUBLE bpsCurrent;
 	DOUBLE elapsedSeconds;
 
 	if (!transferParam) return;
 
-	if (transferParam->HasEpCompanionDescriptor){
-		if (transferParam->EpCompanionDescriptor.wBytesPerInterval){
-			if (transferParam->Ep.PipeType == UsbdPipeTypeIsochronous){
-				LOG_MSG("%s %s (Ep%02Xh) Maximum Bytes Per Interval:%lu Max Bursts:%u Multi:%u\n",
-					EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
-					TRANSFER_DISPLAY(transferParam, "Read", "Write"),
-					transferParam->Ep.PipeId,
-					transferParam->Ep.MaximumBytesPerInterval,
-					transferParam->EpCompanionDescriptor.bMaxBurst+1,
-					transferParam->EpCompanionDescriptor.bmAttributes.Isochronous.Mult+1);
+    if (transferParam->HasEpCompanionDescriptor) {
+        if (transferParam->EpCompanionDescriptor.wBytesPerInterval) {
+            if (transferParam->Ep.PipeType == UsbdPipeTypeIsochronous) {
+                LOG_MSG("%s %s from Ep0x%02X Maximum Bytes Per Interval:%lu Max Bursts:%u Multi:%u\n",
+                    EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
+                    TRANSFER_DISPLAY(transferParam, "Read", "Write"),
+                    transferParam->Ep.PipeId,
+                    transferParam->Ep.MaximumBytesPerInterval,
+                    transferParam->EpCompanionDescriptor.bMaxBurst + 1,
+                    transferParam->EpCompanionDescriptor.bmAttributes.Isochronous.Mult + 1);
 
-			}
+            }
 
-			else if (transferParam->Ep.PipeType == UsbdPipeTypeBulk){
-				LOG_MSG("%s %s (Ep%02Xh) Maximum Bytes Per Interval:%lu Max Bursts:%u Max Streams:%u\n",
-					EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
-					TRANSFER_DISPLAY(transferParam, "Read", "Write"),
-					transferParam->Ep.PipeId,
-					transferParam->Ep.MaximumBytesPerInterval,
-					transferParam->EpCompanionDescriptor.bMaxBurst + 1,
-					transferParam->EpCompanionDescriptor.bmAttributes.Bulk.MaxStreams + 1);
+            else if (transferParam->Ep.PipeType == UsbdPipeTypeBulk) {
+                LOG_MSG("%s %s from Ep0x%02X Maximum Bytes Per Interval:%lu Max Bursts:%u Max Streams:%u\n",
+                    EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
+                    TRANSFER_DISPLAY(transferParam, "Read", "Write"),
+                    transferParam->Ep.PipeId,
+                    transferParam->Ep.MaximumBytesPerInterval,
+                    transferParam->EpCompanionDescriptor.bMaxBurst + 1,
+                    transferParam->EpCompanionDescriptor.bmAttributes.Bulk.MaxStreams + 1);
 
-			}
+            }
 
-			else{
-				LOG_MSG("%s %s (Ep%02Xh) Maximum Bytes Per Interval:%lu\n",
-					EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
-					TRANSFER_DISPLAY(transferParam, "Read", "Write"),
-					transferParam->Ep.PipeId,
-					transferParam->Ep.MaximumBytesPerInterval);
+            else {
+                LOG_MSG("%s %s from Ep0x%02X Maximum Bytes Per Interval:%lu\n",
+                    EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
+                    TRANSFER_DISPLAY(transferParam, "Read", "Write"),
+                    transferParam->Ep.PipeId,
+                    transferParam->Ep.MaximumBytesPerInterval);
 
-			}
-		}
+            }
+        }
 
-		else{
-			LOG_MSG("%s %s (Ep%02Xh) Maximum Packet Size:%d\n",
-				EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
-				TRANSFER_DISPLAY(transferParam, "Read", "Write"),
-				transferParam->Ep.PipeId,
-				transferParam->Ep.MaximumPacketSize);
-		}
-	}
+        else {
+            LOG_MSG("%s %s Ep0x%02X Maximum Packet Size:%d\n",
+                EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
+                TRANSFER_DISPLAY(transferParam, "Read", "Write"),
+                transferParam->Ep.PipeId,
+                transferParam->Ep.MaximumPacketSize);
+        }
+    }
 
-	else{
-		LOG_MSG("%s %s (Ep%02Xh) Maximum Packet Size: %d\n",
-			EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
-			TRANSFER_DISPLAY(transferParam, "Read", "Write"),
-			transferParam->Ep.PipeId,
-			transferParam->Ep.MaximumPacketSize);
-	}
+    else {
+        LOG_MSG("%s %s Ep0x%02X Maximum Packet Size: %d\n",
+            EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
+            TRANSFER_DISPLAY(transferParam, "Read", "Write"),
+            transferParam->Ep.PipeId,
+            transferParam->Ep.MaximumPacketSize);
+    }
 
 	if (transferParam->StartTick){
 		GetAverageBytesSec(transferParam, &bpsAverage);
@@ -1095,20 +1291,15 @@ void ShowTransfer(PBENCHMARK_TRANSFER_PARAM transferParam){
 
 }
 
-BOOL WaitForTestTransfer(PBENCHMARK_TRANSFER_PARAM transferParam, UINT msToWait)
-{
+BOOL WaitForTestTransfer(PUVPERF_TRANSFER_PARAM transferParam, UINT msToWait){
     DWORD exitCode;
 
-    while (transferParam)
-    {
-        if (!transferParam->isRunning)
-        {
-            if (GetExitCodeThread(transferParam->ThreadHandle, &exitCode))
-            {
+    while (transferParam){
+        if (!transferParam->isRunning){
+            if (GetExitCodeThread(transferParam->ThreadHandle, &exitCode)){
                 LOG_MSG("stopped Ep%02Xh thread.\tExitCode=%d\n",
                     transferParam->Ep.PipeId, exitCode);
                 break;
-
 
             }
 
@@ -1118,8 +1309,7 @@ BOOL WaitForTestTransfer(PBENCHMARK_TRANSFER_PARAM transferParam, UINT msToWait)
 
         LOG_MSG("waiting for Ep%02Xh thread..\n", transferParam->Ep.PipeId);
         WaitForSingleObject(transferParam->ThreadHandle, 100);
-        if (msToWait != INFINITE)
-        {
+        if (msToWait != INFINITE){
             if ((msToWait - 100) == 0 || (msToWait - 100) > msToWait)
                 return FALSE;
         }
@@ -1129,9 +1319,9 @@ BOOL WaitForTestTransfer(PBENCHMARK_TRANSFER_PARAM transferParam, UINT msToWait)
 }
 
 int main(int argc, char** argv) {
-    PARAM TestParms;
-    PBENCHMARK_TRANSFER_PARAM ReadTest = NULL;
-    PBENCHMARK_TRANSFER_PARAM WriteTest = NULL;
+    UVPERF_PARAM TestParms;
+    PUVPERF_TRANSFER_PARAM ReadTest = NULL;
+    PUVPERF_TRANSFER_PARAM WriteTest = NULL;
     int key;
     long ec;
     unsigned int count;
@@ -1139,7 +1329,10 @@ int main(int argc, char** argv) {
 
     if (argc == 1) {
         ShowUsage();
+        return -1;
     }
+
+    SetParamsDefaults(&TestParms);
 
     if (ParseArgs(&TestParms, argc, argv) < 0)
         return -1;
@@ -1218,18 +1411,43 @@ int main(int argc, char** argv) {
     if (ReadTest) K.SetPipePolicy(TestParms.InterfaceHandle, ReadTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1, &bIsoAsap);
     if (WriteTest) K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1, &bIsoAsap);
 
-    // Set the thread priority and start it.
     if (ReadTest)
     {
         SetThreadPriority(ReadTest->ThreadHandle, TestParms.priority);
         ResumeThread(ReadTest->ThreadHandle);
     }
 
-    // Set the thread priority and start it.
     if (WriteTest)
     {
         SetThreadPriority(WriteTest->ThreadHandle, TestParms.priority);
         ResumeThread(WriteTest->ThreadHandle);
+    }
+
+    ShowParms(&TestParms);
+
+    while(!TestParms.isCancelled){
+        Sleep(TestParms.refresh);
+
+        if (ReadTest)
+            ShowTransfer(ReadTest);
+        
+        if (WriteTest)
+            ShowTransfer(WriteTest);
+
+		if ((ReadTest) && !ReadTest->isRunning)
+		{
+			TestParms.isCancelled = TRUE;
+			break;
+		}
+
+		if ((WriteTest) && !WriteTest->isRunning)
+		{
+			TestParms.isCancelled = TRUE;
+			break;
+		}
+
+        ShowRunningStatus(ReadTest, WriteTest);
+
     }
 
     WaitForTestTransfer(ReadTest, 1000);
@@ -1248,20 +1466,6 @@ int main(int argc, char** argv) {
 		WaitForTestTransfer(ReadTest, INFINITE);
 	if ((WriteTest) && WriteTest->isRunning) 
 		WaitForTestTransfer(WriteTest, INFINITE);
-
-        
-	ShowParms(&TestParms);
-
-    while(!TestParms.isCancelled){
-        if (ReadTest)
-            ShowTransfer(ReadTest);
-        
-        if (WriteTest)
-            ShowTransfer(WriteTest);
-
-    }
-	if (ReadTest) ShowTransfer(ReadTest);
-	if (WriteTest) ShowTransfer(WriteTest);
 
 Done:
     if (TestParms.InterfaceHandle) {
@@ -1284,7 +1488,7 @@ Done:
     }
 
     if (TestParms.VerifyBuffer) {
-        PBENCHMARK_BUFFER verifyBuffer, verifyListTemp;
+        PUVPERF_BUFFER verifyBuffer, verifyListTemp;
 
         free(TestParms.VerifyBuffer);
         TestParms.VerifyBuffer = NULL;
