@@ -174,8 +174,15 @@ typedef struct _BENCHMARK_TRANSFER_PARAM {
     BOOL HasEpCompanionDescriptor;
     BOOL isRunning;
 
-    long long TotalTransferred;
-    long LastTransferred;
+    LONGLONG TotalTransferred;
+	LONG LastTransferred;
+
+    LONG Packets;
+	DWORD StartTick;
+	DWORD LastTick;
+	DWORD LastStartTick;
+
+    int shortTrasnferred;
 
     int TotalTimeoutCount;
     int RunningTimeoutCount;
@@ -204,6 +211,8 @@ int GetParamsDevice(PPARAM TestParms);
 int ParseArgs(PPARAM TestParms, int argc, char** argv);
 void ShowParms(PPARAM TestParms);
 PBENCHMARK_TRANSFER_PARAM CreateTransferParam(PPARAM TestParms, int endpointID);
+void GetAverageBytesSec(PBENCHMARK_TRANSFER_PARAM transferParam, DOUBLE* bps);
+void GetCurrentBytesSec(PBENCHMARK_TRANSFER_PARAM transferParam, DOUBLE* bps);
 DWORD TransferThread(PBENCHMARK_TRANSFER_PARAM transferParam);
 void FreeTransferParam(PBENCHMARK_TRANSFER_PARAM* transferParamRef);
 
@@ -211,6 +220,8 @@ void FreeTransferParam(PBENCHMARK_TRANSFER_PARAM* transferParamRef);
 	((TransferParam->Ep.PipeId & USB_ENDPOINT_DIRECTION_MASK) ? ReadingString : WritingString)
 
 #define ENDPOINT_TYPE(TransferParam) (TransferParam->Ep.PipeType & 3)
+const char* TestDisplayString[] = { "None", "Read", "Write", "Loop", NULL };
+const char* EndpointTypeDisplayString[] = { "Control", "Isochronous", "Bulk", "Interrupt", NULL };
 
 LONG WinError(__in_opt DWORD errorCode) {
     LPSTR buffer = NULL;
@@ -949,6 +960,120 @@ Done:
     return transferParam;
 }
 
+void GetAverageBytesSec(PBENCHMARK_TRANSFER_PARAM transferParam, DOUBLE* bps){
+    DWORD elapsedSeconds;
+    if (!transferParam) return;
+
+    if (transferParam->StartTick &&transferParam->StartTick < transferParam->LastTick){
+        elapsedSeconds = (transferParam->LastTick - transferParam->StartTick) / 1000.0;
+        *bps = (DOUBLE)transferParam->TotalTransferred / elapsedSeconds;
+    }
+    else{
+        *bps = 0;
+    }
+}
+void GetCurrentBytesSec(PBENCHMARK_TRANSFER_PARAM transferParam, DOUBLE* bps){
+    DWORD elapsedSeconds;
+    if (!transferParam) return;
+
+    if (transferParam->LastStartTick && transferParam->LastStartTick < transferParam->LastTick){
+        elapsedSeconds = (transferParam->LastTick - transferParam->LastStartTick) / 1000.0;
+        *bps = (DOUBLE)transferParam->LastTransferred / elapsedSeconds;
+    }
+    else{
+        *bps = 0;
+    }
+}
+
+void ShowTransfer(PBENCHMARK_TRANSFER_PARAM transferParam){
+	DOUBLE bpsAverage;
+	DOUBLE bpsCurrent;
+	DOUBLE elapsedSeconds;
+
+	if (!transferParam) return;
+
+	if (transferParam->HasEpCompanionDescriptor){
+		if (transferParam->EpCompanionDescriptor.wBytesPerInterval){
+			if (transferParam->Ep.PipeType == UsbdPipeTypeIsochronous){
+				LOG_MSG("%s %s (Ep%02Xh) Maximum Bytes Per Interval:%lu Max Bursts:%u Multi:%u\n",
+					EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
+					TRANSFER_DISPLAY(transferParam, "Read", "Write"),
+					transferParam->Ep.PipeId,
+					transferParam->Ep.MaximumBytesPerInterval,
+					transferParam->EpCompanionDescriptor.bMaxBurst+1,
+					transferParam->EpCompanionDescriptor.bmAttributes.Isochronous.Mult+1);
+
+			}
+
+			else if (transferParam->Ep.PipeType == UsbdPipeTypeBulk){
+				LOG_MSG("%s %s (Ep%02Xh) Maximum Bytes Per Interval:%lu Max Bursts:%u Max Streams:%u\n",
+					EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
+					TRANSFER_DISPLAY(transferParam, "Read", "Write"),
+					transferParam->Ep.PipeId,
+					transferParam->Ep.MaximumBytesPerInterval,
+					transferParam->EpCompanionDescriptor.bMaxBurst + 1,
+					transferParam->EpCompanionDescriptor.bmAttributes.Bulk.MaxStreams + 1);
+
+			}
+
+			else{
+				LOG_MSG("%s %s (Ep%02Xh) Maximum Bytes Per Interval:%lu\n",
+					EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
+					TRANSFER_DISPLAY(transferParam, "Read", "Write"),
+					transferParam->Ep.PipeId,
+					transferParam->Ep.MaximumBytesPerInterval);
+
+			}
+		}
+
+		else{
+			LOG_MSG("%s %s (Ep%02Xh) Maximum Packet Size:%d\n",
+				EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
+				TRANSFER_DISPLAY(transferParam, "Read", "Write"),
+				transferParam->Ep.PipeId,
+				transferParam->Ep.MaximumPacketSize);
+		}
+	}
+
+	else{
+		LOG_MSG("%s %s (Ep%02Xh) Maximum Packet Size: %d\n",
+			EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
+			TRANSFER_DISPLAY(transferParam, "Read", "Write"),
+			transferParam->Ep.PipeId,
+			transferParam->Ep.MaximumPacketSize);
+	}
+
+	if (transferParam->StartTick){
+		GetAverageBytesSec(transferParam, &bpsAverage);
+		GetCurrentBytesSec(transferParam, &bpsCurrent);
+		LOG_MSG("\tTotal Bytes     : %I64d\n", transferParam->TotalTransferred);
+		LOG_MSG("\tTotal Transfers : %d\n", transferParam->Packets);
+
+		if (transferParam->shortTrasnferred){
+			LOG_MSG("\tShort Transfers : %d\n", transferParam->shortTrasnferred);
+		}
+
+		if (transferParam->TotalTimeoutCount){
+			LOG_MSG("\tTimeout Errors  : %d\n", transferParam->TotalTimeoutCount);
+		}
+
+		if (transferParam->TotalErrorCount){
+			LOG_MSG("\tOther Errors    : %d\n", transferParam->TotalErrorCount);
+		}
+
+		LOG_MSG("\tAvg. Bytes/sec  : %.2f\n", bpsAverage);
+
+		if (transferParam->StartTick && transferParam->StartTick < transferParam->LastTick){
+			elapsedSeconds = (transferParam->LastTick - transferParam->StartTick) / 1000.0;
+
+			LOG_MSG("\tElapsed Time    : %.2f seconds\n", elapsedSeconds);
+		}
+
+		LOG_MSG("\n");
+	}
+
+}
+
 BOOL WaitForTestTransfer(PBENCHMARK_TRANSFER_PARAM transferParam, UINT msToWait)
 {
     DWORD exitCode;
@@ -1106,6 +1231,20 @@ int main(int argc, char** argv) {
 	if ((WriteTest) && WriteTest->isRunning) 
 		WaitForTestTransfer(WriteTest, INFINITE);
 
+        
+	ShowParms(&TestParms);
+
+    while(!TestParms.isCancelled){
+        if (ReadTest)
+            ShowTransfer(ReadTest);
+        
+        if (WriteTest)
+            ShowTransfer(WriteTest);
+
+    }
+	if (ReadTest) ShowTransfer(ReadTest);
+	if (WriteTest) ShowTransfer(WriteTest);
+
 Done:
     if (TestParms.InterfaceHandle) {
         K.SetAltInterface(
@@ -1137,18 +1276,6 @@ Done:
         //     free(verifyBuffer);
         // }
     }
-
-    // if (TestParms.ReadLogFile) {
-    //     fflush(TestParms.ReadLogFile);
-    //     fclose(TestParms.ReadLogFile);
-    //     TestParms.ReadLogFile = NULL;
-    // }
-
-    // if (TestParms.WriteLogFile) {
-    //     fflush(TestParms.WriteLogFile);
-    //     fclose(TestParms.WriteLogFile);
-    //     TestParms.WriteLogFile = NULL;
-    // }
 
     LstK_Free(TestParms.DeviceList);
     FreeTransferParam(&ReadTest);
