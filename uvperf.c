@@ -205,6 +205,8 @@ typedef struct _KBENCH_CONTEXT_LSTK
 
 BOOL Bench_Open(__in PPARAM TestParms);
 
+
+void ShowUsage();
 void SetParamsDefaults(PPARAM TestParms);
 int GetParamsDevice(PPARAM TestParms);
 
@@ -470,7 +472,6 @@ BOOL WINAPI IsoTransferCb(
     _in void* userState
 ) {
     return TRUE;
-
 }
 
 //TODO : TransferAsync
@@ -480,6 +481,26 @@ int TransferAsync(PBENCHMARK_TRANSFER_PARAM transferParam) {
 
 void VerifyLoopData() {
     return;
+}
+
+void ShowUsage(){
+    LOG_MSG("Usage: uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -tTRANSFER -oTIMEOUT -rlLENGTH -wlLENGTH -rREPEAT\n");
+    LOG_MSG("\t-vVID           USB Vendor ID\n");
+    LOG_MSG("\t-pPID           USB Product ID\n");
+    LOG_MSG("\t-iINTERFACE     USB Interface\n");
+    LOG_MSG("\t-aAltInterface  USB Alternate Interface\n");
+    LOG_MSG("\t-eENDPOINT      USB Endpoint\n");
+    LOG_MSG("\t-tTRANSFER      0 = isochronous, 1 = bulk\n");
+    LOG_MSG("\t-oTIMEOUT       USB Transfer Timeout\n");
+    LOG_MSG("\t-rlLENGTH       Length of read transfers\n");
+    LOG_MSG("\t-wlLENGTH       Length of write transfers\n");
+    LOG_MSG("\t-rREPEAT        Number of transfers to perform\n");
+    LOG_MSG("\n");
+    LOG_MSG("Example:\n");
+    LOG_MSG("uvperf -v0x1004 -p0xa000 -i0 -a0 -e0x81 -t1 -o1000 -l1024 -r1000 -x1\n");
+    LOG_MSG("This will perform 1000 bulk transfers of 1024 bytes to endpoint 0x81\n");
+    LOG_MSG("on interface 0, alternate setting 0 of a device with VID 0x1004 and PID 0xA000.\n");
+    LOG_MSG("The transfers will have a timeout of 1000ms.\n");
 }
 
 void SetParamsDefaults(PPARAM TestParms) {
@@ -1116,11 +1137,8 @@ int main(int argc, char** argv) {
     unsigned int count;
     UCHAR bIsoAsap;
 
-    // todo : when argc == 1, print usage message
     if (argc == 1) {
-        // print usage message
-        LOGERR0("Invalid argument\n");
-        return -1;
+        ShowUsage();
     }
 
     if (ParseArgs(&TestParms, argc, argv) < 0)
