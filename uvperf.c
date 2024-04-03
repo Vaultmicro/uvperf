@@ -526,13 +526,15 @@ int GetParamsDevice(PPARAM TestParms) {
 int ParseArgs(PPARAM TestParms, int argc, char** argv) {
     int i;
     int arg;
+    char* temp;
     int value;
     int status = 0;
 
     for (i = 1; i < argc; i++) {
         if (argv[i][0] == '-') {
             arg = argv[i][1];
-            value = atoi(&argv[i][2]);
+            temp = argv[i]+2;
+            value = strtol(temp, NULL, 0);
             switch (arg) {
             case 'v':
                 TestParms->vid = value;
@@ -1019,8 +1021,8 @@ int main(int argc, char** argv) {
     }
 
 
-    //if (!Bench_Open(&TestParms))
-    //    goto Done;
+    if (!Bench_Open(&TestParms))
+       goto Done;
 
     if (TestParms.TestType & TestTypeRead) {
         ReadTest = CreateTransferParam(&TestParms, TestParms.endpoint | USB_ENDPOINT_DIRECTION_MASK);
@@ -1056,6 +1058,19 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (TestParms.verify){
+		if (ReadTest && WriteTest)
+		{
+			if (CreateVerifyBuffer(&TestParms, WriteTest->Ep.MaximumPacketSize) < 0)
+				goto Done;
+		}
+		else if (ReadTest)
+		{
+			if (CreateVerifyBuffer(&TestParms, ReadTest->Ep.MaximumPacketSize) < 0)
+				goto Done;
+		}
+	}
+
     bIsoAsap = (UCHAR)TestParms.UseIsoAsap;
     if (ReadTest) K.SetPipePolicy(TestParms.InterfaceHandle, ReadTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1, &bIsoAsap);
     if (WriteTest) K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1, &bIsoAsap);
@@ -1073,6 +1088,23 @@ int main(int argc, char** argv) {
         SetThreadPriority(WriteTest->ThreadHandle, TestParms.priority);
         ResumeThread(WriteTest->ThreadHandle);
     }
+
+    WaitForTestTransfer(ReadTest, 1000);
+	if ((ReadTest) && ReadTest->isRunning){
+		LOG_WARNING("Aborting Read Pipe 0x%02X..", ReadTest->Ep.PipeId);
+		K.AbortPipe(TestParms.InterfaceHandle, ReadTest->Ep.PipeId);
+	}
+	
+	WaitForTestTransfer(WriteTest, 1000);
+	if ((WriteTest) && WriteTest->isRunning){
+		LOG_WARNING("Aborting Write Pipe 0x%02X..", WriteTest->Ep.PipeId);
+		K.AbortPipe(TestParms.InterfaceHandle, WriteTest->Ep.PipeId);
+	}
+
+	if ((ReadTest) && ReadTest->isRunning) 
+		WaitForTestTransfer(ReadTest, INFINITE);
+	if ((WriteTest) && WriteTest->isRunning) 
+		WaitForTestTransfer(WriteTest, INFINITE);
 
 Done:
     if (TestParms.InterfaceHandle) {
@@ -1100,23 +1132,23 @@ Done:
         free(TestParms.VerifyBuffer);
         TestParms.VerifyBuffer = NULL;
 
-        DL_FOREACH_SAFE(TestParms.VerifyList, verifyBuffer, verifyListTemp) {
-            DL_DELETE(TestParms.VerifyList, verifyBuffer);
-            free(verifyBuffer);
-        }
+        // DL_FOREACH_SAFE(TestParms.VerifyList, verifyBuffer, verifyListTemp) {
+        //     DL_DELETE(TestParms.VerifyList, verifyBuffer);
+        //     free(verifyBuffer);
+        // }
     }
 
-    if (TestParms.ReadLogFile) {
-        fflush(TestParms.ReadLogFile);
-        fclose(TestParms.ReadLogFile);
-        TestParms.ReadLogFile = NULL;
-    }
+    // if (TestParms.ReadLogFile) {
+    //     fflush(TestParms.ReadLogFile);
+    //     fclose(TestParms.ReadLogFile);
+    //     TestParms.ReadLogFile = NULL;
+    // }
 
-    if (TestParms.WriteLogFile) {
-        fflush(TestParms.WriteLogFile);
-        fclose(TestParms.WriteLogFile);
-        TestParms.WriteLogFile = NULL;
-    }
+    // if (TestParms.WriteLogFile) {
+    //     fflush(TestParms.WriteLogFile);
+    //     fclose(TestParms.WriteLogFile);
+    //     TestParms.WriteLogFile = NULL;
+    // }
 
     LstK_Free(TestParms.DeviceList);
     FreeTransferParam(&ReadTest);
