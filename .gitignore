@@ -1,6 +1,15 @@
 # Created by https://www.toptal.com/developers/gitignore/api/windows,c,python
 # Edit at https://www.toptal.com/developers/gitignore?templates=windows,c,python
 
+.vscode/
+*.exe
+*.out
+*.o
+*.obj
+build/
+include/
+lib/
+
 ### C ###
 # Prerequisites
 *.d
