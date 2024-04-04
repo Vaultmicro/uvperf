@@ -31,3 +31,7 @@ uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE -tTIMEOU
 This will perform 1000 bulk transfers of 1024 bytes to endpoint 0x81
 on interface 0, alternate setting 0 of a device with VID 0x1004 and PID 0xA000.
 The transfers will have a timeout of 1000ms.
+
+### Bandwitdh
+
+In the middle of excution, press "q" or "Q" then, shwo the log average Bandwidth ( Byte/sec, Mpbs ), total transfer
