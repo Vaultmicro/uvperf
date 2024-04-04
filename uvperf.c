@@ -6,7 +6,7 @@
 *   and report the results.
 *
 *   Usage:
-*   uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE -tTIMEOUT -lREADLENGTH -wWRITELENGTH -rREPEAT -R|-W|-L
+*   uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE -tTIMEOUT -lREADLENGTH -wWRITELENGTH -rREPEAT -S1 -R|-W|-L
 *
 *   -vVID           USB Vendor ID
 *   -pPID           USB Product ID
@@ -18,6 +18,7 @@
 *   -lREADLENGTH    Length of read transfers
 *   -wWRITELENGTH   Length of write transfers
 *   -rREPEAT        Number of transfers to perform
+*   -S 0|1          1 = Show transfer data, defulat = 0\n
 *   -R              Read Test
 *   -W              Write Test
 *   -L              Loop Test
@@ -30,26 +31,21 @@
 *   The transfers will have a timeout of 1000ms.
 *
 ********************************************************************!*/
-// #include <window.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <conio.h>
 #include <wtypes.h>
 #include <stdarg.h>
+#include <signal.h>
 
-#include "libusbk.h"
-#include "lusbk_shared.h"
-#include "lusbk_linked_list.h"
+#include "include/libusbk.h"
+#include "include/lusbk_shared.h"
+#include "include/lusbk_linked_list.h"
 
 #define MAX_OUTSTANDING_TRANSFERS 10
 
-#pragma warning(disable: 4127)
-#pragma warning(disable: 4996)
-#pragma comment(lib, "libusbK.lib")
-
 #define LOGVDAT(format, ...) printf("[data-mismatch] " format, ##__VA_ARGS__)
 
-// #define LOG(LogTypeString, format, ...) printf("%s[" __FUNCTION__"] "format, LogTypeString, ##__VA_ARGS__)
 #define LOG(LogTypeString, format, ...) printf("%s[%s] " format, LogTypeString, __FUNCTION__, __VA_ARGS__)
 #define LOG_NO_FN(LogTypeString, format, ...) printf("%s" format "%s", LogTypeString, ##__VA_ARGS__,"")
 
@@ -109,11 +105,12 @@ typedef struct _UVPERF_PARAM {
     int repeat;
     int fixedIsoPackets;
     int priority;
+    BOOL ShowTransfer;
     BOOL useList;
     BOOL verify;
     BOOL verifyDetails;
-    enum UVPERF_DEVICE_TRANSFER_TYPE TestType;
-    enum UVPERF_TRANSFER_MODE TransferMode;
+    UVPERF_DEVICE_TRANSFER_TYPE TestType;
+    UVPERF_TRANSFER_MODE TransferMode;
 
     KLST_HANDLE DeviceList;
     KLST_DEVINFO_HANDLE SelectedDeviceProfile;
@@ -213,7 +210,7 @@ BOOL Bench_Open(__in PUVPERF_PARAM TestParms);
 
 void ShowUsage();
 void SetParamsDefaults(PUVPERF_PARAM TestParms);
-int GetParamsDevice(PUVPERF_PARAM TestParms);
+int GetDeviceParam(PUVPERF_PARAM TestParms);
 
 int ParseArgs(PUVPERF_PARAM TestParms, int argc, char** argv);
 void ShowParms(PUVPERF_PARAM TestParms);
@@ -294,7 +291,7 @@ BOOL Bench_Open(__in PUVPERF_PARAM TestParams) {
 
         if (!LibK_LoadDriverAPI(&K, deviceInfo->DriverID)) {
             WinError(0);
-            LOG_WARNING("could not load driver api %s.\n", GetDrvIdString(deviceInfo->DriverID));
+            LOG_WARNING("can not load driver api %s\n", GetDrvIdString(deviceInfo->DriverID));
             continue;
         }
         if (!TestParams->use_UsbK_Init) {
@@ -309,7 +306,7 @@ BOOL Bench_Open(__in PUVPERF_PARAM TestParams) {
             if (!TestParams->DeviceHandle || TestParams->DeviceHandle == INVALID_HANDLE_VALUE) {
                 WinError(0);
                 TestParams->DeviceHandle = NULL;
-                LOG_WARNING("could not create device handle.\n%s\n", deviceInfo->DevicePath);
+                LOG_WARNING("can not create device handle\n%s\n", deviceInfo->DevicePath);
                 continue;
             }
 
@@ -318,7 +315,7 @@ BOOL Bench_Open(__in PUVPERF_PARAM TestParams) {
                 CloseHandle(TestParams->DeviceHandle);
                 TestParams->DeviceHandle = NULL;
                 TestParams->InterfaceHandle = NULL;
-                LOG_WARNING("could not initialize device.\n%s\n", deviceInfo->DevicePath);
+                LOG_WARNING("can not initialize device\n%s\n", deviceInfo->DevicePath);
                 continue;
             }
         }
@@ -327,7 +324,7 @@ BOOL Bench_Open(__in PUVPERF_PARAM TestParams) {
                 WinError(0);
                 TestParams->DeviceHandle = NULL;
                 TestParams->InterfaceHandle = NULL;
-                LOG_WARNING("could not open device.\n%s\n", deviceInfo->DevicePath);
+                LOG_WARNING("can not open device\n%s\n", deviceInfo->DevicePath);
                 continue;
             }
 
@@ -350,7 +347,7 @@ BOOL Bench_Open(__in PUVPERF_PARAM TestParams) {
                 TestParams->DeviceHandle = NULL;
             }
 
-            LOG_WARNING("could not get device descriptor.\n%s\n", deviceInfo->DevicePath);
+            LOG_WARNING("can not get device descriptor\n%s\n", deviceInfo->DevicePath);
             continue;
         }
         TestParams->vid = (int)TestParams->DeviceDescriptor.idVendor;
@@ -409,7 +406,7 @@ BOOL Bench_Open(__in PUVPERF_PARAM TestParams) {
                         K.GetCurrentAlternateSetting(TestParams->InterfaceHandle, &TestParams->DefaultAltSetting);
                         if (!K.SetCurrentAlternateSetting(TestParams->InterfaceHandle, TestParams->InterfaceDescriptor.bAlternateSetting))
                         {
-                            LOG_ERROR("failed selecting alternate setting %02Xh\n", TestParams->altf);
+                            LOG_ERROR("can not find alt interface %02X\n", TestParams->altf);
                             return FALSE;
                         }
                         return TRUE;
@@ -433,7 +430,7 @@ BOOL Bench_Open(__in PUVPERF_PARAM TestParams) {
         TestParams->InterfaceHandle = NULL;
     }
 
-    LOG_ERROR("device interface/alt interface not found (%02Xh/%02Xh).\n", TestParams->intf, TestParams->altf);
+    LOG_ERROR("device doesn't have %02X interface and %02X alt interface\n", TestParams->intf, TestParams->altf);
     return FALSE;
 }
 
@@ -478,7 +475,7 @@ int VerifyData(PUVPERF_TRANSFER_PARAM transferParam, BYTE* data, INT dataLength)
 			// Reset the key byte on the next packet.
 			seedKey = TRUE;
 
-			LOGVDAT("Packet=#%d Data=#%d\n", packetIndex, dataIndex);
+			// LOGVDAT("Packet=#%d Data=#%d\n", packetIndex, dataIndex);
 
 			if (transferParam->TestParms->verifyDetails)
 			{
@@ -559,7 +556,7 @@ void VerifyLoopData() {
 }
 
 void ShowUsage(){
-    LOG_MSG("Usage: uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE -tTIMEOUT -lREADLENGTH -wWRITELENGTH -rREPEAT -R|-W|-L\n");
+    LOG_MSG("Usage: uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE -tTIMEOUT -lREADLENGTH -wWRITELENGTH -rREPEAT -S1 -R|-W|-L\n");
     LOG_MSG("\t-vVID           USB Vendor ID\n");
     LOG_MSG("\t-pPID           USB Product ID\n");
     LOG_MSG("\t-iINTERFACE     USB Interface\n");
@@ -570,6 +567,7 @@ void ShowUsage(){
     LOG_MSG("\t-lREADLENGTH    Length of read transfers\n");
     LOG_MSG("\t-wWRITELENGTH   Length of write transfers\n");
     LOG_MSG("\t-rREPEAT        Number of transfers to perform\n");
+    LOG_MSG("\t-S 0|1          1 = Show transfer data, defulat = 0\n");
     LOG_MSG("\t-R              Read Test\n");
     LOG_MSG("\t-W              Write Test\n");
     LOG_MSG("\t-L              Loop Test\n");
@@ -588,18 +586,20 @@ void SetParamsDefaults(PUVPERF_PARAM TestParms) {
     TestParms->pid = 0xA000;
     TestParms->intf = -1;
     TestParms->altf = -1;
+    TestParms->endpoint = 0x00;
     TestParms->TransferMode = TRANSFER_MODE_SYNC;
     TestParms->TestType = TestTypeNone;
-    TestParms->endpoint = 0x81;
     TestParms->timeout = 3000;
     TestParms->bufferlength = 1024;
     TestParms->refresh = 1000;
     TestParms->readlenth = TestParms->bufferlength;
+    TestParms->verify = 1;
     TestParms->writelength = TestParms->bufferlength;
     TestParms->bufferCount = 1;
+    TestParms->ShowTransfer = FALSE;
 }
 
-int GetParamsDevice(PUVPERF_PARAM TestParms) {
+int GetDeviceParam(PUVPERF_PARAM TestParms) {
     char id[MAX_PATH];
     KLST_DEVINFO_HANDLE deviceInfo = NULL;
 
@@ -692,6 +692,9 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char** argv) {
             case 'w':
                 TestParms->writelength = value;
                 break;
+            case 'S':
+                TestParms->ShowTransfer = value;
+                break;
             case 'R':
                 TestParms->TestType = TestTypeRead;
                 break;
@@ -715,7 +718,6 @@ void ShowParms(PUVPERF_PARAM TestParms) {
     if (!TestParms)
         return;
 
-    // LOG_MSG("%s Test Parameters:\n", );
     LOG_MSG("\tDriver         :  %s\n", GetDrvIdString(TestParms->SelectedDeviceProfile->DriverID));
     LOG_MSG("\tVID:           :  0x%04X\n", TestParms->vid);
     LOG_MSG("\tPID:           :  0x%04X\n", TestParms->pid);
@@ -793,8 +795,10 @@ void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM 
 					bpsReadOverall + bpsWriteOverall, totalPackets, zlp);
 			}
 			else{
-		    	LOG_MSG("Avg. Bytes/s: %.2f Transfers: %d Bytes/s: %.2f\n",
-					bpsReadOverall + bpsWriteOverall, totalPackets, bpsReadLastTransfer + bpsWriteLastTransfer);
+		    	LOG_MSG("Average %.2f Bytes/s\n", bpsReadOverall + bpsWriteOverall);
+                LOG_MSG("Average %.2f Mbps\n", (bpsReadOverall + bpsWriteOverall)*8/1000/1000);
+                LOG_MSG("Total %d Transfers\n", totalPackets);
+                LOG_MSG("\n\n");
 			}
 		}
 	}
@@ -888,6 +892,9 @@ DWORD TransferThread(PUVPERF_TRANSFER_PARAM transferParam) {
             }
             else {
                 // LOG_MSG("Wrote %d bytes\n", ret);
+                if (transferParam->TestParms->verify && transferParam->TestParms->TestType != TestTypeLoop){
+					VerifyData(transferParam, buffer, ret);
+				}
             }
 
         }
@@ -1049,7 +1056,7 @@ PUVPERF_TRANSFER_PARAM CreateTransferParam(PUVPERF_PARAM TestParam, int endpoint
 
     if (!pipeInfo)
     {
-        LOG_ERROR("failed locating EP%02Xh!\n", endpointID);
+        LOG_ERROR("failed locating EP0x%02X\n", endpointID);
         goto Done;
     }
 
@@ -1177,34 +1184,34 @@ Done:
     return transferParam;
 }
 
-void GetAverageBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE* bps){
+void GetAverageBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE* byteps){
     DWORD elapsedSeconds;
     if (!transferParam) return;
 
     if (transferParam->StartTick &&transferParam->StartTick < transferParam->LastTick){
         elapsedSeconds = (transferParam->LastTick - transferParam->StartTick) / 1000.0;
-        *bps = (DOUBLE)transferParam->TotalTransferred / elapsedSeconds;
+        *byteps = (DOUBLE)transferParam->TotalTransferred / elapsedSeconds;
     }
     else{
-        *bps = 0;
+        *byteps = 0;
     }
 }
-void GetCurrentBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE* bps){
+void GetCurrentBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE* byteps){
     DWORD elapsedSeconds;
     if (!transferParam) return;
 
     if (transferParam->LastStartTick && transferParam->LastStartTick < transferParam->LastTick){
         elapsedSeconds = (transferParam->LastTick - transferParam->LastStartTick) / 1000.0;
-        *bps = (DOUBLE)transferParam->LastTransferred / elapsedSeconds;
+        *byteps = (DOUBLE)transferParam->LastTransferred / elapsedSeconds;
     }
     else{
-        *bps = 0;
+        *byteps = 0;
     }
 }
 
 void ShowTransfer(PUVPERF_TRANSFER_PARAM transferParam){
-	DOUBLE bpsAverage;
-	DOUBLE bpsCurrent;
+	DOUBLE BytepsAverage;
+	DOUBLE BytepsCurrent;
 	DOUBLE elapsedSeconds;
 
 	if (!transferParam) return;
@@ -1261,29 +1268,31 @@ void ShowTransfer(PUVPERF_TRANSFER_PARAM transferParam){
     }
 
 	if (transferParam->StartTick){
-		GetAverageBytesSec(transferParam, &bpsAverage);
-		GetCurrentBytesSec(transferParam, &bpsCurrent);
-		LOG_MSG("\tTotal Bytes     : %I64d\n", transferParam->TotalTransferred);
-		LOG_MSG("\tTotal Transfers : %d\n", transferParam->Packets);
+		GetAverageBytesSec(transferParam, &BytepsAverage);
+		GetCurrentBytesSec(transferParam, &BytepsCurrent);
+		LOG_MSG("\tTotal %I64d  Bytes\n", transferParam->TotalTransferred);
+		LOG_MSG("\tTotal %d  Transfers\n", transferParam->Packets);
 
 		if (transferParam->shortTrasnferred){
-			LOG_MSG("\tShort Transfers : %d\n", transferParam->shortTrasnferred);
+			LOG_MSG("\tShort %d  Transfers\n", transferParam->shortTrasnferred);
 		}
 
 		if (transferParam->TotalTimeoutCount){
-			LOG_MSG("\tTimeout Errors  : %d\n", transferParam->TotalTimeoutCount);
+			LOG_MSG("\tTimeout %d  Errors\n", transferParam->TotalTimeoutCount);
 		}
 
 		if (transferParam->TotalErrorCount){
-			LOG_MSG("\tOther Errors    : %d\n", transferParam->TotalErrorCount);
+			LOG_MSG("\tOther %d  Errors\n", transferParam->TotalErrorCount);
 		}
 
-		LOG_MSG("\tAvg. Bytes/sec  : %.2f\n", bpsAverage);
+		LOG_MSG("\tAverage %.2f  Bytes/sec\n", BytepsAverage);
+        LOG_MSG("\tAverage %.2f  Mbps/sec\n", (BytepsAverage*8)/1000/1000);
+
 
 		if (transferParam->StartTick && transferParam->StartTick < transferParam->LastTick){
 			elapsedSeconds = (transferParam->LastTick - transferParam->StartTick) / 1000.0;
 
-			LOG_MSG("\tElapsed Time    : %.2f seconds\n", elapsedSeconds);
+			LOG_MSG("\tElapsed Time %.2f  seconds\n", elapsedSeconds);
 		}
 
 		LOG_MSG("\n");
@@ -1297,13 +1306,13 @@ BOOL WaitForTestTransfer(PUVPERF_TRANSFER_PARAM transferParam, UINT msToWait){
     while (transferParam){
         if (!transferParam->isRunning){
             if (GetExitCodeThread(transferParam->ThreadHandle, &exitCode)){
-                LOG_MSG("stopped Ep%02Xh thread.\tExitCode=%d\n",
+                LOG_MSG("stopped Ep0x%02X thread \tExitCode=%d\n",
                     transferParam->Ep.PipeId, exitCode);
                 break;
 
             }
 
-            LOG_ERROR("failed getting Ep%02Xh thread exit code!\n", transferParam->Ep.PipeId);
+            LOG_ERROR("failed getting Ep0x%02X thread exit code!\n", transferParam->Ep.PipeId);
             break;
         }
 
@@ -1337,6 +1346,11 @@ int main(int argc, char** argv) {
     if (ParseArgs(&TestParms, argc, argv) < 0)
         return -1;
 
+    // if(TestParms.intf == -1 && TestParms.altf == -1){
+    //     LOGMSG0("Default setting is\n");
+    //     ShowParms(&TestParms);
+    // }
+
     InitializeCriticalSection(&DisplayCriticalSection);
 
     if (!LstK_Init(&TestParms.DeviceList, 0)) {
@@ -1352,10 +1366,9 @@ int main(int argc, char** argv) {
         goto Done;
     }
 
-    if (GetParamsDevice(&TestParms) < 0) {
+    if (GetDeviceParam(&TestParms) < 0) {
         goto Done;
     }
-
 
     if (!Bench_Open(&TestParms))
        goto Done;
@@ -1374,7 +1387,7 @@ int main(int argc, char** argv) {
     }
 
     if (TestParms.TestType & TestTypeWrite) {
-        WriteTest = CreateTransferParam(&TestParms, TestParms.endpoint);
+        WriteTest = CreateTransferParam(&TestParms, TestParms.endpoint & 0x0F);
         if (!WriteTest) goto Done;
         if (TestParms.fixedIsoPackets)
         {
@@ -1427,28 +1440,41 @@ int main(int argc, char** argv) {
 
     while(!TestParms.isCancelled){
         Sleep(TestParms.refresh);
+        if (_kbhit()){
+			// A key was pressed.
+			key = _getch();
+			switch (key){
+			case 'Q':
+			case 'q':
+				TestParms.isUserAborted = TRUE;
+				TestParms.isCancelled = TRUE;
+            }
 
-        if (ReadTest)
-            ShowTransfer(ReadTest);
-        
-        if (WriteTest)
-            ShowTransfer(WriteTest);
+            if (TestParms.ShowTransfer){
+                if(ReadTest)
+                    ShowTransfer(ReadTest);
+                if(WriteTest)
+                    ShowTransfer(WriteTest);
+            }
 
-		if ((ReadTest) && !ReadTest->isRunning)
-		{
-			TestParms.isCancelled = TRUE;
-			break;
-		}
+            if ((ReadTest) && !ReadTest->isRunning)
+            {
+                TestParms.isCancelled = TRUE;
+                break;
+            }
 
-		if ((WriteTest) && !WriteTest->isRunning)
-		{
-			TestParms.isCancelled = TRUE;
-			break;
-		}
-
-        ShowRunningStatus(ReadTest, WriteTest);
-
+            if ((WriteTest) && !WriteTest->isRunning)
+            {
+                TestParms.isCancelled = TRUE;
+                break;
+            }
+        }
+    
+        // Only one key at a time.
+        while (_kbhit()) _getch();
     }
+    
+    ShowRunningStatus(ReadTest, WriteTest);
 
     WaitForTestTransfer(ReadTest, 1000);
 	if ((ReadTest) && ReadTest->isRunning){
