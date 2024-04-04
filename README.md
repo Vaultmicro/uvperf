@@ -26,7 +26,7 @@ uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE -tTIMEOU
 
 ### Example:
 
-        ./uvperf.exe -v0x1004 -p0x61a1 -i0 -a0 -e0x81 -m1 -t1000 -l1024 -r1000 -R
+    ./uvperf.exe -v0x1004 -p0x61a1 -i0 -a0 -e0x81 -m1 -t1000 -l1024 -r1000 -R
 
 This will perform 1000 bulk transfers of 1024 bytes to endpoint 0x81
 on interface 0, alternate setting 0 of a device with VID 0x1004 and PID 0xA000.
@@ -34,4 +34,4 @@ The transfers will have a timeout of 1000ms.
 
 ### Bandwitdh
 
-In the middle of excution, press "q" or "Q" then, shwo the log average Bandwidth ( Byte/sec, Mpbs ), total transfer
+In the middle of excution, press "q" or "Q" then, show the log average Bandwidth ( Byte/sec, Mpbs ), total transfer
