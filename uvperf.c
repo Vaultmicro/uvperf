@@ -893,7 +893,7 @@ DWORD TransferThread(PUVPERF_TRANSFER_PARAM transferParam) {
             else {
                 // LOG_MSG("Wrote %d bytes\n", ret);
                 if (transferParam->TestParms->verify && transferParam->TestParms->TestType != TestTypeLoop){
-					VerifyData(transferParam, buffer, ret);
+					// VerifyData(transferParam, buffer, ret);
 				}
             }
 

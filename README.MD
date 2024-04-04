@@ -1,18 +1,33 @@
 # 실행방법
 1. include "libusb.h"
-2. gcc로 컴파일 할 경우 링크 경로 지정 -> -L"{libusb.dll 경로}" -l"usb-1.0"
+2. gcc로 컴파일 할 경우 링크 경로 지정 -> -L"{libusbk.dll 경로}" -l"usb"
+3. CMake로 컴파일 할 경우
+    1. mkdir build
+    2. build dir에서 cmake ..
+4. Visual Studio로 컴파일 할 경우 ->  #pragma comment(lib, "libusbk.lib") 추가
 
-# 문제점
-1. uvperf_iso_in.c 의 경우 I/O error 87 오류 해결 못함
-2. usb_iso_py 의 경우
-    * read 전에 set_altsetting() 매 번 초기화를 해야하는 문제가 있음
-    * buffer size가 커지면 timeout 오류 출력
+## UVTest 사용법
 
-# 원인과 해결방법
-1. 원인을 찾지 못함  
+uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE -tTIMEOUT -lREADLENGTH -wWRITELENGTH -rREPEAT -S1 -R|-W|-L
+*   -vVID<br/>           USB Vendor ID
+*   -pPID<br/>           USB Product ID
+*   -iINTERFACE<br>      USB Interface
+*   -aAltInterface<br>   USB Alternate Interface
+*   -eENDPOINT<br>       USB Endpoint
+*   -mTRANSFERMODE<br>   0 = isochronous, 1 = bulk
+*   -tTIMEOUT<br>        USB Transfer Timeout
+*   -lREADLENGTH<br>     Length of read transfers
+*   -wWRITELENGTH<br>    Length of write transfers
+*   -rREPEAT<br>         Number of transfers to perform
+*   -S 0|1<br>           1 = Show transfer data, defulat = 0\n
+*   -R <br>              :ead Test
+*   -W <br>              Write Test
+*   -L <br>              Loop Test
 
-2.
-    * 정확한 원인을 찾지 못함
-    * ISO transfer의 buffersize는 wMaxPacketSize * frame 당 packet 수 즉, wMaxPacketSize * 8 의 배수가 되어야 함  
-    하지만 너무 큰 buffer size를 할당한다면 timeout error + USBD_STATUS_BAD_START_FRAME packet을 받음  
-    buffer 사이즈의 문제인 것으로 생각되나 정확한 원인을 찾는 중
+### Example:
+
+        ./uvperf.exe -v0x1004 -p0x61a1 -i0 -a0 -e0x81 -m1 -t1000 -l1024 -r1000 -R
+
+This will perform 1000 bulk transfers of 1024 bytes to endpoint 0x81
+on interface 0, alternate setting 0 of a device with VID 0x1004 and PID 0xA000.
+The transfers will have a timeout of 1000ms.
