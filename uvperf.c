@@ -99,6 +99,7 @@ typedef struct _UVPERF_PARAM {
     int refresh;
     int retry;
     int bufferlength;
+    int allocBufferSize;
     int readlenth;
     int writelength;
     int bufferCount;
@@ -189,13 +190,22 @@ typedef struct _UVPERF_TRANSFER_PARAM {
     int TotalTimeoutCount;
     int RunningTimeoutCount;
 
+    int totalErrorCount;
+    int runningErrorCount;
+
     int TotalErrorCount;
     int RunningErrorCount;
+
+    int shortTransferCount;
+
+    int transferHandleNextIndex;
+    int transferHandleWaitIndex;
+    int outstandingTransferCount;
 
     UVPERF_TRANSFER_HANDLE TransferHandles[MAX_OUTSTANDING_TRANSFERS];
     BENCHMARK_ISOCH_RESULTS IsochResults;
 
-    unsigned char Buffer[0];
+    UCHAR Buffer[0];
 } UVPERF_TRANSFER_PARAM, * PUVPERF_TRANSFER_PARAM;
 
 #include <pshpack1.h>
@@ -223,6 +233,8 @@ void FreeTransferParam(PUVPERF_TRANSFER_PARAM* transferParamRef);
 
 #define TRANSFER_DISPLAY(TransferParam, ReadingString, WritingString) \
 	((TransferParam->Ep.PipeId & USB_ENDPOINT_DIRECTION_MASK) ? ReadingString : WritingString)
+
+#define INC_ROLL(IncField, RollOverValue) if ((++IncField) >= RollOverValue) IncField = 0
 
 #define ENDPOINT_TYPE(TransferParam) (TransferParam->Ep.PipeType & 3)
 const char* TestDisplayString[] = { "None", "Read", "Write", "Loop", NULL };
@@ -534,23 +546,209 @@ int TransferSync(PUVPERF_TRANSFER_PARAM transferParam) {
     return success ? (int)trasnferred : -labs(GetLastError());
 }
 
-//TODO : IsoTransferCb
 BOOL WINAPI IsoTransferCb(
     _in unsigned int packetIndex,
     _ref unsigned int* offset,
     _ref unsigned int* length,
     _ref unsigned int* status,
-    _in void* userState
-) {
+    _in void* userState)
+{
+    BENCHMARK_ISOCH_RESULTS* isochResults = (BENCHMARK_ISOCH_RESULTS*)userState;
+
+    UNREFERENCED_PARAMETER(packetIndex);
+    UNREFERENCED_PARAMETER(offset);
+
+    if(*status)
+        isochResults->BadPackets++;
+    else{
+        if(*length){
+            isochResults->GoodPackets++;
+            isochResults->Length += *length;
+        }
+    }
+    isochResults->TotalPackets++;
+
     return TRUE;
 }
 
-//TODO : TransferAsync
-int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam) {
-    return 0;
+int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam, PUVPERF_TRANSFER_HANDLE* handleRef) {
+    int ret = 0;
+    BOOL success;
+    PUVPERF_TRANSFER_HANDLE handle = NULL;
+    DWORD transferErrorCode;
+
+    *handleRef = NULL;
+
+	// Submit transfers until the maximum number of outstanding transfer(s) is reached.
+	while (transferParam->outstandingTransferCount < transferParam->TestParms->bufferCount)
+	{
+		// Get the next available benchmark transfer handle.
+		*handleRef = handle = &transferParam->TransferHandles[transferParam->transferHandleNextIndex];
+
+		// If a libusb-win32 transfer context hasn't been setup for this benchmark transfer
+		// handle, do it now.
+		//
+		if (!handle->Overlapped.hEvent)
+		{
+			handle->Overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+			// Data buffer(s) are located at the end of the transfer param.
+			handle->Data = transferParam->Buffer + (transferParam->transferHandleNextIndex * transferParam->TestParms->allocBufferSize);
+		}
+		else
+		{
+			// re-initialize and re-use the overlapped
+			ResetEvent(handle->Overlapped.hEvent);
+		}
+
+		if (transferParam->Ep.PipeId & USB_ENDPOINT_DIRECTION_MASK)
+		{
+			handle->DataMaxLength = transferParam->TestParms->readlenth;
+			if (transferParam->Ep.PipeType == UsbdPipeTypeIsochronous)
+			{
+				success = K.IsochReadPipe(handle->IsochHandle,
+					handle->DataMaxLength,
+					&transferParam->frameNumber,
+					0,
+					&handle->Overlapped);
+			}
+			else
+			{
+				success = K.ReadPipe(transferParam->TestParms->InterfaceHandle,
+					transferParam->Ep.PipeId,
+					handle->Data,
+					handle->DataMaxLength,
+					NULL,
+					&handle->Overlapped);
+			}
+		}
+
+        // Isochronous write pipe -> doesn't need right now
+		else
+		{
+			AppendLoopBuffer(transferParam->TestParms, handle->Data, transferParam->TestParms->writelength);
+			handle->DataMaxLength = transferParam->TestParms->writelength;
+			if (transferParam->Ep.PipeType == UsbdPipeTypeIsochronous)
+			{
+				success = K.IsochWritePipe(handle->IsochHandle,
+					handle->DataMaxLength,
+					&transferParam->frameNumber,
+					0,
+					&handle->Overlapped);
+			}
+			else
+			{
+				success = K.WritePipe(transferParam->TestParms->InterfaceHandle,
+					transferParam->Ep.PipeId,
+					handle->Data,
+					handle->DataMaxLength,
+					NULL,
+					&handle->Overlapped);
+
+			}
+		}
+
+		transferErrorCode = GetLastError();
+
+		if (!success && transferErrorCode == ERROR_IO_PENDING)
+		{
+			transferErrorCode = ERROR_SUCCESS;
+			success = TRUE;
+		}
+
+		// Submit this transfer now.
+		handle->ReturnCode = ret = -labs(transferErrorCode);
+		if (ret < 0)
+		{
+			handle->InUse = FALSE;
+			goto Done;
+		}
+
+		// Mark this handle has InUse.
+		handle->InUse = TRUE;
+
+		// When transfers ir successfully submitted, OutstandingTransferCount goes up; when
+		// they are completed it goes down.
+		//
+		transferParam->outstandingTransferCount++;
+
+		// Move TransferHandleNextIndex to the next available transfer.
+		INC_ROLL(transferParam->transferHandleNextIndex, transferParam->TestParms->bufferCount);
+
+	}
+
+	// If the number of outstanding transfers has reached the limit, wait for the
+	// oldest outstanding transfer to complete.
+	//
+	if (transferParam->outstandingTransferCount == transferParam->TestParms->bufferCount)
+	{
+		UINT transferred;
+		// TransferHandleWaitIndex is the index of the oldest outstanding transfer.
+		*handleRef = handle = &transferParam->TransferHandles[transferParam->transferHandleWaitIndex];
+
+		// Only wait, cancelling & freeing is handled by the caller.
+		if (WaitForSingleObject(handle->Overlapped.hEvent, transferParam->TestParms->timeout) != WAIT_OBJECT_0)
+		{
+			if (!transferParam->TestParms->isUserAborted)
+				ret = WinError(0);
+			else
+				ret = -labs(GetLastError());
+
+			handle->ReturnCode = ret;
+			goto Done;
+		}
+		if (!K.GetOverlappedResult(transferParam->TestParms->InterfaceHandle, &handle->Overlapped, &transferred, FALSE))
+		{
+			if (!transferParam->TestParms->isUserAborted)
+				ret = WinError(0);
+			else
+				ret = -labs(GetLastError());
+
+			handle->ReturnCode = ret;
+			goto Done;
+		}
+		if (transferParam->Ep.PipeType == UsbdPipeTypeIsochronous && transferParam->Ep.PipeId & 0x80)
+		{
+			// iso read pipe
+			memset(&handle->IsochResults, 0, sizeof(handle->IsochResults));
+			IsochK_EnumPackets(handle->IsochHandle, &IsoTransferCb, 0, &handle->IsochResults);
+			transferParam->IsochResults.TotalPackets += handle->IsochResults.TotalPackets;
+			transferParam->IsochResults.GoodPackets += handle->IsochResults.GoodPackets;
+			transferParam->IsochResults.BadPackets += handle->IsochResults.BadPackets;
+			transferParam->IsochResults.Length += handle->IsochResults.Length;
+			transferred = handle->IsochResults.Length;
+		}
+
+        // Isochronous write pipe -> doesn't need right now
+		else if (transferParam->Ep.PipeType == UsbdPipeTypeIsochronous)
+		{
+			// iso write pipe
+			transferred = handle->DataMaxLength;
+
+			transferParam->IsochResults.TotalPackets += transferParam->numberOFIsoPackets;
+			transferParam->IsochResults.GoodPackets += transferParam->numberOFIsoPackets;
+		}
+
+		handle->ReturnCode = ret = (DWORD)transferred;
+
+		if (ret < 0) goto Done;
+
+		// Mark this handle has no longer InUse.
+		handle->InUse = FALSE;
+
+		// When transfers ir successfully submitted, OutstandingTransferCount goes up; when
+		// they are completed it goes down.
+		//
+		transferParam->outstandingTransferCount--;
+
+		// Move TransferHandleWaitIndex to the oldest outstanding transfer.
+		INC_ROLL(transferParam->transferHandleWaitIndex, transferParam->TestParms->bufferCount);
+	}
+
+Done:
+	return ret;
 }
 
-//TODO : TransferAsync
+//todo : later for Loop data
 void VerifyLoopData() {
     return;
 }
@@ -593,10 +791,11 @@ void SetParamsDefaults(PUVPERF_PARAM TestParms) {
     TestParms->bufferlength = 1024;
     TestParms->refresh = 1000;
     TestParms->readlenth = TestParms->bufferlength;
-    TestParms->verify = 1;
     TestParms->writelength = TestParms->bufferlength;
+    TestParms->verify = 1;
     TestParms->bufferCount = 1;
     TestParms->ShowTransfer = FALSE;
+    TestParms->UseRawIO = 0xFF;
 }
 
 int GetDeviceParam(PUVPERF_PARAM TestParms) {
@@ -667,17 +866,10 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char** argv) {
             case 'b':
                 TestParms->bufferCount = value;
                 if(TestParms->bufferCount > 1){
-                    LOGMSG0("Isochronous transfer doesn't supported yet\n");
-                    status = -1;
                     TestParms->TransferMode = TRANSFER_MODE_ASYNC;
                 }
                 break;
             case 'm':
-                // TODO : ISOTRANSFER
-                if(value == 0){
-                    LOGMSG0("Isochronous transfer doesn't supported yet\n");
-                    status = -1;
-                }
                 TestParms->TransferMode = (value ? TRANSFER_MODE_SYNC : TRANSFER_MODE_ASYNC);
                 break;
             case 't':
@@ -823,7 +1015,7 @@ DWORD TransferThread(PUVPERF_TRANSFER_PARAM transferParam) {
                 buffer = transferParam->Buffer;
         }
         else if (transferParam->TestParms->TransferMode == TRANSFER_MODE_ASYNC) {
-            ret = TransferAsync(transferParam);
+            ret = TransferAsync(transferParam, &handle);
             if ((handle) && ret >= 0)
                 buffer = transferParam->Buffer;
         }
@@ -1420,6 +1612,27 @@ int main(int argc, char** argv) {
 		}
 	}
 
+	if ((WriteTest && WriteTest->Ep.PipeType == UsbdPipeTypeIsochronous) || (ReadTest && ReadTest->Ep.PipeType == UsbdPipeTypeIsochronous)){
+		UINT frameNumber;
+		if (!K.GetCurrentFrameNumber(TestParms.InterfaceHandle, &frameNumber))
+		{
+			LOG_ERROR("GetCurrentFrameNumber Failed. ErrorCode=%u", GetLastError());
+			goto Done;
+		}
+		frameNumber += TestParms.bufferCount * 2;
+		if (WriteTest)
+		{
+			WriteTest->frameNumber = frameNumber;
+			frameNumber++;
+		}
+		if (ReadTest)
+		{
+			ReadTest->frameNumber = frameNumber;
+			frameNumber++;
+		}
+
+	}
+
     bIsoAsap = (UCHAR)TestParms.UseIsoAsap;
     if (ReadTest) K.SetPipePolicy(TestParms.InterfaceHandle, ReadTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1, &bIsoAsap);
     if (WriteTest) K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1, &bIsoAsap);
@@ -1450,13 +1663,6 @@ int main(int argc, char** argv) {
 				TestParms.isCancelled = TRUE;
             }
 
-            if (TestParms.ShowTransfer){
-                if(ReadTest)
-                    ShowTransfer(ReadTest);
-                if(WriteTest)
-                    ShowTransfer(WriteTest);
-            }
-
             if ((ReadTest) && !ReadTest->isRunning)
             {
                 TestParms.isCancelled = TRUE;
@@ -1469,12 +1675,23 @@ int main(int argc, char** argv) {
                 break;
             }
         }
+
+        if (ReadTest && ReadTest->LastTick - ReadTest->StartTick >= 60000){
+            TestParms.isUserAborted = TRUE;
+            TestParms.isCancelled = TRUE;
+			LOG_MSG("Elapsed Time %.2f  seconds\n", (ReadTest->LastTick - ReadTest->StartTick) / 1000.0);
+		}
+
+        if (WriteTest && WriteTest->LastTick - WriteTest->StartTick >= 60000){
+            TestParms.isUserAborted = TRUE;
+            TestParms.isCancelled = TRUE;
+			LOG_MSG("Elapsed Time %.2f  seconds\n", (WriteTest->LastTick - WriteTest->StartTick) / 1000.0);
+		}
     
+        ShowRunningStatus(ReadTest, WriteTest);
         // Only one key at a time.
         while (_kbhit()) _getch();
     }
-    
-    ShowRunningStatus(ReadTest, WriteTest);
 
     WaitForTestTransfer(ReadTest, 1000);
 	if ((ReadTest) && ReadTest->isRunning){
@@ -1492,6 +1709,11 @@ int main(int argc, char** argv) {
 		WaitForTestTransfer(ReadTest, INFINITE);
 	if ((WriteTest) && WriteTest->isRunning) 
 		WaitForTestTransfer(WriteTest, INFINITE);
+
+    if(ReadTest)
+        ShowTransfer(ReadTest);
+    if(WriteTest)
+        ShowTransfer(WriteTest);
 
 Done:
     if (TestParms.InterfaceHandle) {
