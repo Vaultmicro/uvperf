@@ -1,10 +1,14 @@
 # 실행방법
+## uvperf.c
 1. include "libusb.h"
 2. gcc로 컴파일 할 경우 링크 경로 지정 -> -L"{libusbk.dll 경로}" -l"usb"
 3. CMake
     1. mkdir build
     2. build dir에서 cmake ..
 4. Visual Studio로 컴파일 할 경우 ->  #pragma comment(lib, "libusbk.lib") 추가
+## uvperf_bulk_libusb.c
+1. include "libusb.h"
+2. gcc로 컴파일 할 경우 링크 경로 지정 -> -L"{libusb.dll 경로}" -l"usb-1.0"
 
 ## UVTest 사용법
 
