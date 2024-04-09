@@ -31,12 +31,12 @@
 *   The transfers will have a timeout of 1000ms.
 *
 ********************************************************************!*/
+#include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <conio.h>
 #include <wtypes.h>
 #include <stdarg.h>
-#include <signal.h>
 
 #include "include/libusbk.h"
 #include "include/lusbk_shared.h"
@@ -69,13 +69,18 @@ KUSB_DRIVER_API K;
 CRITICAL_SECTION DisplayCriticalSection;
 
 typedef struct _UVPERF_BUFFER {
-    PUCHAR Data;
+    PUCHAR          Data;
     LONG            dataLenth;
     LONG            syncFailed;
 
     struct _UVPERF_BUFFER* next;
     struct _UVPERF_BUFFER* prev;
 } UVPERF_BUFFER, * PUVPERF_BUFFER;
+
+typedef enum _BENCHMARK_DEVICE_COMMAND{
+    SET_TEST = 0x0E,
+    GET_TEST = 0x0F,
+} UVPERF_DEVICE_COMMAND, * PUVPERF_DEVICE_COMMAND;
 
 typedef enum _UVPERF_DEVICE_TRANSFER_TYPE {
     TestTypeNone = 0x00,
@@ -217,9 +222,14 @@ typedef struct _KBENCH_CONTEXT_LSTK
 
 BOOL Bench_Open(__in PUVPERF_PARAM TestParms);
 
+BOOL Bench_Configure(__in KUSB_HANDLE handle,
+	__in UVPERF_DEVICE_COMMAND command,
+	__in UCHAR intf,
+	__inout PUVPERF_DEVICE_TRANSFER_TYPE testType);
 
 void ShowUsage();
 void SetParamsDefaults(PUVPERF_PARAM TestParms);
+int GetDeviceInfoFromList(PUVPERF_PARAM TestParms);
 int GetDeviceParam(PUVPERF_PARAM TestParms);
 
 int ParseArgs(PUVPERF_PARAM TestParms, int argc, char** argv);
@@ -444,6 +454,38 @@ BOOL Bench_Open(__in PUVPERF_PARAM TestParams) {
 
     LOG_ERROR("device doesn't have %02X interface and %02X alt interface\n", TestParams->intf, TestParams->altf);
     return FALSE;
+}
+
+
+BOOL Bench_Configure(__in KUSB_HANDLE handle,
+	__in UVPERF_DEVICE_COMMAND command,
+	__in UCHAR intf,
+	__inout PUVPERF_DEVICE_TRANSFER_TYPE testType){
+    UCHAR buffer[1];
+	UINT transferred = 0;
+	WINUSB_SETUP_PACKET Pkt;
+	KUSB_SETUP_PACKET* defPkt = (KUSB_SETUP_PACKET*)&Pkt;
+
+	memset(&Pkt, 0, sizeof(Pkt));
+	defPkt->BmRequest.Dir = BMREQUEST_DIR_DEVICE_TO_HOST;
+	defPkt->BmRequest.Type = BMREQUEST_TYPE_VENDOR;
+	defPkt->Request = (UCHAR)command;
+	defPkt->Value = (UCHAR)*testType;
+	defPkt->Index = intf;
+	defPkt->Length = 1;
+
+	if (!handle || handle == INVALID_HANDLE_VALUE){
+		return WinError(ERROR_INVALID_HANDLE);
+    }
+
+	if (K.ControlTransfer(handle, Pkt, buffer, 1, &transferred, NULL))
+	{
+		if (transferred)
+			return TRUE;
+	}
+
+    LOGERR0("can not configure device\n");
+	return WinError(0);
 }
 
 int VerifyData(PUVPERF_TRANSFER_PARAM transferParam, BYTE* data, INT dataLength)
@@ -796,6 +838,124 @@ void SetParamsDefaults(PUVPERF_PARAM TestParms) {
     TestParms->bufferCount = 1;
     TestParms->ShowTransfer = FALSE;
     TestParms->UseRawIO = 0xFF;
+}
+
+int SelectEndpoint(PUVPERF_PARAM TestParms){
+    USB_INTERFACE_DESCRIPTOR interfaceDescriptor;
+    USB_ENDPOINT_DESCRIPTOR endpointDescriptor;
+    UCHAR select;
+    UCHAR count;
+    BOOL success;
+
+    success = K.QueryInterfaceSettings(TestParms->InterfaceHandle, TestParms->altf, &interfaceDescriptor);
+    if(!success){
+        LOGERR0("can not get interface settings\n");
+        return -1;
+    }
+
+    count = 0;
+
+    for(UCHAR i = 0; i < interfaceDescriptor.bNumEndpoints; i++){
+        success = K.QueryPipeEx(TestParms->InterfaceHandle, TestParms->altf, i, &endpointDescriptor);
+        if(!success){
+            LOGERR0("can not get pipe\n");
+            return -1;
+        }
+        LOG_MSG("Endpoint 0x%02X \n", endpointDescriptor.bEndpointAddress);
+        count++;
+    }
+
+    LOG_MSG("Select endpoint (0-%u) :", count);
+    while(_kbhit()) _getch();
+
+    select = (UCHAR)_getche();
+    select -= (UCHAR)'0';
+    LOGMSG0("\n\n");
+
+    if(select > 0 && select <= count){
+        count = 0;
+        for(UCHAR i = 0; i < interfaceDescriptor.bNumEndpoints; i++){
+            success = K.QueryPipeEx(TestParms->InterfaceHandle, TestParms->altf, i, &endpointDescriptor);
+            if(!success){
+                LOGERR0("can not get pipe\n");
+                return -1;
+            }
+
+            if(count == select){
+                TestParms->endpoint = endpointDescriptor.bEndpointAddress;
+                return ERROR_SUCCESS;
+            }
+            count++;
+        }
+    }
+
+    return -1;
+}
+
+int GetDeviceInfoFromList(PUVPERF_PARAM TestParms){
+    UCHAR selection;
+	UCHAR count = 0;
+	KLST_DEVINFO_HANDLE deviceInfo = NULL;
+
+	LstK_MoveReset(TestParms->DeviceList);
+
+	if (TestParms->listDevicesOnly)
+	{
+		while (LstK_MoveNext(TestParms->DeviceList, &deviceInfo))
+		{
+			count++;
+			LOG_MSG("%02u. %s (%s) [%s]\n", count, deviceInfo->DeviceDesc, deviceInfo->DeviceID, GetDrvIdString(deviceInfo->DriverID));
+		}
+
+		return ERROR_SUCCESS;
+	}
+	else
+	{
+		while (LstK_MoveNext(TestParms->DeviceList, &deviceInfo) && count < 9)
+		{
+			LOG_MSG("%u. %s (%s) [%s]\n", count + 1, deviceInfo->DeviceDesc, deviceInfo->DeviceID, GetDrvIdString(deviceInfo->DriverID));
+			count++;
+
+			// enabled
+			LibK_SetContext(deviceInfo, KLIB_HANDLE_TYPE_LSTINFOK, (KLIB_USER_CONTEXT)TRUE);
+
+		}
+		if (!count)
+		{
+			LOG_ERROR("can not find vid : 0x%04X, pid : 0x%04X device\n", TestParms->vid, TestParms->pid);
+			return -1;
+		}
+
+		LOG_MSG("Select device (1-%u) :", count);
+		while (_kbhit()) _getch();
+
+		selection = (CHAR)_getche();
+		selection -= (UCHAR)'0';
+		LOGMSG0("\n\n");
+
+		if (selection > 0 && selection <= count)
+		{
+			count = 0;
+			while (LstK_MoveNext(TestParms->DeviceList, &deviceInfo) && ++count != selection)
+			{
+				// disabled
+				LibK_SetContext(deviceInfo, KLIB_HANDLE_TYPE_LSTINFOK, (KLIB_USER_CONTEXT)FALSE);
+
+			}
+
+			if (!deviceInfo)
+			{
+				LOGERR0("unknown selection\n");
+				return -1;
+			}
+
+            TestParms->SelectedDeviceProfile = deviceInfo;
+
+			return ERROR_SUCCESS;
+		}
+	}
+
+	return -1;
 }
 
 int GetDeviceParam(PUVPERF_PARAM TestParms) {
@@ -1538,11 +1698,6 @@ int main(int argc, char** argv) {
     if (ParseArgs(&TestParms, argc, argv) < 0)
         return -1;
 
-    // if(TestParms.intf == -1 && TestParms.altf == -1){
-    //     LOGMSG0("Default setting is\n");
-    //     ShowParms(&TestParms);
-    // }
-
     InitializeCriticalSection(&DisplayCriticalSection);
 
     if (!LstK_Init(&TestParms.DeviceList, 0)) {
@@ -1558,12 +1713,46 @@ int main(int argc, char** argv) {
         goto Done;
     }
 
-    if (GetDeviceParam(&TestParms) < 0) {
-        goto Done;
+    // todo : make a flag for this
+    if(TestParms.intf == -1 || TestParms.altf == -1 || TestParms.endpoint == 0x00){
+        if(GetDeviceInfoFromList(&TestParms) < 0 )
+            goto Done;
+
+        LOG_MSG("select Read or Write or Loop\n");
+        LOG_MSG("R - Read\n");
+        LOG_MSG("W - Write\n");
+        LOG_MSG("L - Loop\n");
+
+        key = _getch();
+        switch (key){
+        case 'R':
+        case 'r':
+            TestParms.TestType = TestTypeRead;
+            break;
+        case 'W':
+        case 'w':
+            TestParms.TestType = TestTypeWrite;
+            break;
+        case 'L':
+        case 'l':
+            TestParms.TestType = TestTypeLoop;
+            break;
+        default:
+            LOGERR0("Invalid selection\n");
+            goto Done;
+        }
+    }
+
+    else{
+        if (GetDeviceParam(&TestParms) < 0) {
+            goto Done;
+        }
     }
 
     if (!Bench_Open(&TestParms))
        goto Done;
+
+    
 
     if (TestParms.TestType & TestTypeRead) {
         ReadTest = CreateTransferParam(&TestParms, TestParms.endpoint | USB_ENDPOINT_DIRECTION_MASK);
@@ -1633,6 +1822,16 @@ int main(int argc, char** argv) {
 
 	}
 
+    ShowParms(&TestParms);
+    if(ReadTest)
+        ShowTransfer(ReadTest);
+    if(WriteTest)
+        ShowTransfer(WriteTest);
+
+    LOGMSG0("Press 'Q' to abort\n");
+
+    key = _getch();
+
     bIsoAsap = (UCHAR)TestParms.UseIsoAsap;
     if (ReadTest) K.SetPipePolicy(TestParms.InterfaceHandle, ReadTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1, &bIsoAsap);
     if (WriteTest) K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1, &bIsoAsap);
@@ -1648,8 +1847,6 @@ int main(int argc, char** argv) {
         SetThreadPriority(WriteTest->ThreadHandle, TestParms.priority);
         ResumeThread(WriteTest->ThreadHandle);
     }
-
-    ShowParms(&TestParms);
 
     while(!TestParms.isCancelled){
         Sleep(TestParms.refresh);
