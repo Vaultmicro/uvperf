@@ -840,58 +840,6 @@ void SetParamsDefaults(PUVPERF_PARAM TestParms) {
     TestParms->UseRawIO = 0xFF;
 }
 
-int SelectEndpoint(PUVPERF_PARAM TestParms){
-    USB_INTERFACE_DESCRIPTOR interfaceDescriptor;
-    USB_ENDPOINT_DESCRIPTOR endpointDescriptor;
-    UCHAR select;
-    UCHAR count;
-    BOOL success;
-
-    success = K.QueryInterfaceSettings(TestParms->InterfaceHandle, TestParms->altf, &interfaceDescriptor);
-    if(!success){
-        LOGERR0("can not get interface settings\n");
-        return -1;
-    }
-
-    count = 0;
-
-    for(UCHAR i = 0; i < interfaceDescriptor.bNumEndpoints; i++){
-        success = K.QueryPipeEx(TestParms->InterfaceHandle, TestParms->altf, i, &endpointDescriptor);
-        if(!success){
-            LOGERR0("can not get pipe\n");
-            return -1;
-        }
-        LOG_MSG("Endpoint 0x%02X \n", endpointDescriptor.bEndpointAddress);
-        count++;
-    }
-
-    LOG_MSG("Select endpoint (0-%u) :", count);
-    while(_kbhit()) _getch();
-
-    select = (UCHAR)_getche();
-    select -= (UCHAR)'0';
-    LOGMSG0("\n\n");
-
-    if(select > 0 && select <= count){
-        count = 0;
-        for(UCHAR i = 0; i < interfaceDescriptor.bNumEndpoints; i++){
-            success = K.QueryPipeEx(TestParms->InterfaceHandle, TestParms->altf, i, &endpointDescriptor);
-            if(!success){
-                LOGERR0("can not get pipe\n");
-                return -1;
-            }
-
-            if(count == select){
-                TestParms->endpoint = endpointDescriptor.bEndpointAddress;
-                return ERROR_SUCCESS;
-            }
-            count++;
-        }
-    }
-
-    return -1;
-}
-
 int GetDeviceInfoFromList(PUVPERF_PARAM TestParms){
     UCHAR selection;
 	UCHAR count = 0;
@@ -1722,6 +1670,7 @@ int main(int argc, char** argv) {
         LOG_MSG("R - Read\n");
         LOG_MSG("W - Write\n");
         LOG_MSG("L - Loop\n");
+        LOG_MSG("Selection: ");
 
         key = _getch();
         switch (key){
