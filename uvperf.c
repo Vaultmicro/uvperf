@@ -111,6 +111,7 @@ typedef struct _UVPERF_PARAM {
     int repeat;
     int fixedIsoPackets;
     int priority;
+    BOOL fileIO;
     BOOL ShowTransfer;
     BOOL useList;
     BOOL verify;
@@ -143,6 +144,10 @@ typedef struct _UVPERF_PARAM {
     FILE* ReadLogFile;
     BOOL WriteLogEnabled;
     FILE* WriteLogFile;
+    FILE* ReadFile;
+    FILE* WriteFile;
+    char ReadFileName[MAX_PATH];
+    char WriteFileName[MAX_PATH];
 
     UCHAR UseRawIO;
     UCHAR DefaultAltSetting;
@@ -240,6 +245,12 @@ void GetCurrentBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE* bps);
 void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM writeParam);
 DWORD TransferThread(PUVPERF_TRANSFER_PARAM transferParam);
 void FreeTransferParam(PUVPERF_TRANSFER_PARAM* transferParamRef);
+
+void FileIOOpen(PUVPERF_PARAM TestParms);
+void FileIORead(PUVPERF_PARAM TestParms, PUVPERF_TRANSFER_PARAM transferParam);
+void FileIOWrite(PUVPERF_PARAM TestParms, PUVPERF_TRANSFER_PARAM transferParam);
+void FileIOClose(PUVPERF_PARAM TestParms);
+
 
 #define TRANSFER_DISPLAY(TransferParam, ReadingString, WritingString) \
 	((TransferParam->Ep.PipeId & USB_ENDPOINT_DIRECTION_MASK) ? ReadingString : WritingString)
@@ -796,7 +807,7 @@ void VerifyLoopData() {
 }
 
 void ShowUsage(){
-    LOG_MSG("Usage: uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE -tTIMEOUT -lREADLENGTH -wWRITELENGTH -rREPEAT -S1 -R|-W|-L\n");
+    LOG_MSG("Usage: uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE -tTIMEOUT -fFileIO -lREADLENGTH -wWRITELENGTH -rREPEAT -S1 -R|-W|-L\n");
     LOG_MSG("\t-vVID           USB Vendor ID\n");
     LOG_MSG("\t-pPID           USB Product ID\n");
     LOG_MSG("\t-iINTERFACE     USB Interface\n");
@@ -804,6 +815,7 @@ void ShowUsage(){
     LOG_MSG("\t-eENDPOINT      USB Endpoint\n");
     LOG_MSG("\t-mTRANSFER      0 = isochronous, 1 = bulk\n");
     LOG_MSG("\t-tTIMEOUT       USB Transfer Timeout\n");
+    LOG_MSG("\t-fFileIO        Use file I/O\n");
     LOG_MSG("\t-lREADLENGTH    Length of read transfers\n");
     LOG_MSG("\t-wWRITELENGTH   Length of write transfers\n");
     LOG_MSG("\t-rREPEAT        Number of transfers to perform\n");
@@ -830,6 +842,7 @@ void SetParamsDefaults(PUVPERF_PARAM TestParms) {
     TestParms->TransferMode = TRANSFER_MODE_SYNC;
     TestParms->TestType = TestTypeNone;
     TestParms->timeout = 3000;
+    TestParms->fileIO = FALSE;
     TestParms->bufferlength = 1024;
     TestParms->refresh = 1000;
     TestParms->readlenth = TestParms->bufferlength;
@@ -982,6 +995,9 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char** argv) {
                 break;
             case 't':
                 TestParms->timeout = value;
+                break;
+            case 'f':
+                TestParms->fileIO = TRUE;
                 break;
             case 'r':
                 TestParms->repeat = value;
@@ -1627,6 +1643,76 @@ BOOL WaitForTestTransfer(PUVPERF_TRANSFER_PARAM transferParam, UINT msToWait){
     return TRUE;
 }
 
+void FileIOOpen(PUVPERF_PARAM TestParms){
+    if (TestParms->fileIO){
+        if (TestParms->TestType & TestTypeRead){
+            TestParms->ReadFile = CreateFile(
+                TestParms->ReadFileName,
+                GENERIC_WRITE,
+                FILE_SHARE_READ,
+                NULL,
+                CREATE_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL,
+                NULL
+            );
+
+            if (TestParms->ReadFile == INVALID_HANDLE_VALUE){
+                LOG_ERROR("failed creating %s\n", TestParms->ReadFileName);
+                TestParms->fileIO = FALSE;
+            }
+        }
+
+        if (TestParms->TestType & TestTypeWrite){
+            TestParms->WriteFile = CreateFile(
+                TestParms->WriteFileName,
+                GENERIC_READ,
+                FILE_SHARE_READ,
+                NULL,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                NULL
+            );
+
+            if (TestParms->WriteFile == INVALID_HANDLE_VALUE){
+                LOG_ERROR("failed opening %s\n", TestParms->WriteFileName);
+                TestParms->fileIO = FALSE;
+            }
+        }
+    }
+}
+
+void FileIORead(PUVPERF_PARAM TestParms, PUVPERF_TRANSFER_PARAM transferParam){
+    DWORD bytesRead;
+    if (TestParms->fileIO && TestParms->ReadFile != INVALID_HANDLE_VALUE){
+        if (!ReadFile(TestParms->ReadFile, transferParam->Buffer, TestParms->readlenth, &bytesRead, NULL)){
+            LOG_ERROR("failed reading %s\n", TestParms->ReadFileName);
+        }
+    }
+}
+
+void FileIOWrite(PUVPERF_PARAM TestParms, PUVPERF_TRANSFER_PARAM transferParam){
+    DWORD bytesWritten;
+    if (TestParms->fileIO && TestParms->WriteFile != INVALID_HANDLE_VALUE){
+        if (!WriteFile(TestParms->WriteFile, transferParam->Buffer, TestParms->writelength, &bytesWritten, NULL)){
+            LOG_ERROR("failed writing %s\n", TestParms->WriteFileName);
+        }
+    }
+}
+
+void FileIOClose(PUVPERF_PARAM TestParms){
+    if (TestParms->fileIO){
+        if (TestParms->ReadFile != INVALID_HANDLE_VALUE){
+            CloseHandle(TestParms->ReadFile);
+            TestParms->ReadFile = INVALID_HANDLE_VALUE;
+        }
+
+        if (TestParms->WriteFile != INVALID_HANDLE_VALUE){
+            CloseHandle(TestParms->WriteFile);
+            TestParms->WriteFile = INVALID_HANDLE_VALUE;
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     UVPERF_PARAM TestParms;
     PUVPERF_TRANSFER_PARAM ReadTest = NULL;
@@ -1701,8 +1787,6 @@ int main(int argc, char** argv) {
     if (!Bench_Open(&TestParms))
        goto Done;
 
-    
-
     if (TestParms.TestType & TestTypeRead) {
         ReadTest = CreateTransferParam(&TestParms, TestParms.endpoint | USB_ENDPOINT_DIRECTION_MASK);
         if (!ReadTest) goto Done;
@@ -1723,7 +1807,7 @@ int main(int argc, char** argv) {
         {
             if (!K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId, ISO_NUM_FIXED_PACKETS, 2, &TestParms.fixedIsoPackets))
             {
-                LOG_ERROR("SetPipePolicy:ISO_NUM_FIXED_PACKETS failed. ErrorCode=%08Xh\n", GetLastError());
+                LOG_ERROR("SetPipePolicy:ISO_NUM_FIXED_PACKETS failed. ErrorCode=0x%08X\n", GetLastError());
                 goto Done;
             }
         }
@@ -1731,7 +1815,7 @@ int main(int argc, char** argv) {
         {
             if (!K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId, RAW_IO, 1, &TestParms.UseRawIO))
             {
-                LOG_ERROR("SetPipePolicy:RAW_IO failed. ErrorCode=%08Xh\n", GetLastError());
+                LOG_ERROR("SetPipePolicy:RAW_IO failed. ErrorCode=0x%08X\n", GetLastError());
                 goto Done;
             }
         }
@@ -1777,8 +1861,6 @@ int main(int argc, char** argv) {
     if(WriteTest)
         ShowTransfer(WriteTest);
 
-    LOGMSG0("Press 'Q' to abort\n");
-
     key = _getch();
 
     bIsoAsap = (UCHAR)TestParms.UseIsoAsap;
@@ -1797,6 +1879,9 @@ int main(int argc, char** argv) {
         ResumeThread(WriteTest->ThreadHandle);
     }
 
+    
+    LOGMSG0("Press 'Q' to abort\n");
+    
     while(!TestParms.isCancelled){
         Sleep(TestParms.refresh);
         if (_kbhit()){
@@ -1855,6 +1940,11 @@ int main(int argc, char** argv) {
 		WaitForTestTransfer(ReadTest, INFINITE);
 	if ((WriteTest) && WriteTest->isRunning) 
 		WaitForTestTransfer(WriteTest, INFINITE);
+
+        
+    if(TestParms.fileIO){
+        fileIO(ReadTest, "Read.bin");
+    }
 
     if(ReadTest)
         ShowTransfer(ReadTest);
