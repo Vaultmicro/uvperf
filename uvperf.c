@@ -37,6 +37,7 @@
 #include <conio.h>
 #include <wtypes.h>
 #include <stdarg.h>
+#include <string.h>
 
 #include "include/libusbk.h"
 #include "include/lusbk_shared.h"
@@ -293,7 +294,7 @@ void AppendLoopBuffer(
             sizeof(UVPERF_BUFFER) + length
         );
 
-        memset(newVerifyBuf, 0, sizeof(UVPERF_BUFFER));
+        memset(newVerifyBuf, 1, sizeof(UVPERF_BUFFER));
 
         newVerifyBuf->Data = (unsigned char*)newVerifyBuf
             + sizeof(UVPERF_BUFFER);
@@ -807,7 +808,7 @@ void VerifyLoopData() {
 }
 
 void ShowUsage(){
-    LOG_MSG("Usage: uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE -tTIMEOUT -fFileIO -lREADLENGTH -wWRITELENGTH -rREPEAT -S1 -R|-W|-L\n");
+    LOG_MSG("Usage: uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE -tTIMEOUT -fFileIO -lREADLENGTH -wWRITELENGTH -rREPEAT -S -R|-W|-L\n");
     LOG_MSG("\t-vVID           USB Vendor ID\n");
     LOG_MSG("\t-pPID           USB Product ID\n");
     LOG_MSG("\t-iINTERFACE     USB Interface\n");
@@ -815,11 +816,11 @@ void ShowUsage(){
     LOG_MSG("\t-eENDPOINT      USB Endpoint\n");
     LOG_MSG("\t-mTRANSFER      0 = isochronous, 1 = bulk\n");
     LOG_MSG("\t-tTIMEOUT       USB Transfer Timeout\n");
-    LOG_MSG("\t-fFileIO        Use file I/O\n");
+    LOG_MSG("\t-fFileIO        Use file I/O, default : FALSE\n");
     LOG_MSG("\t-lREADLENGTH    Length of read transfers\n");
     LOG_MSG("\t-wWRITELENGTH   Length of write transfers\n");
     LOG_MSG("\t-rREPEAT        Number of transfers to perform\n");
-    LOG_MSG("\t-S 0|1          1 = Show transfer data, defulat = 0\n");
+    LOG_MSG("\t-S              Show transfer data, default : FALSE\n");
     LOG_MSG("\t-R              Read Test\n");
     LOG_MSG("\t-W              Write Test\n");
     LOG_MSG("\t-L              Loop Test\n");
@@ -1009,7 +1010,7 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char** argv) {
                 TestParms->writelength = value;
                 break;
             case 'S':
-                TestParms->ShowTransfer = value;
+                TestParms->ShowTransfer = TRUE;
                 break;
             case 'R':
                 TestParms->TestType = TestTypeRead;
@@ -1644,14 +1645,19 @@ BOOL WaitForTestTransfer(PUVPERF_TRANSFER_PARAM transferParam, UINT msToWait){
 }
 
 void FileIOOpen(PUVPERF_PARAM TestParms){
+    strncpy(TestParms->ReadFileName, "uvperf_read.dat", MAX_PATH-1);
+    TestParms->ReadFileName[MAX_PATH-1] = '\0';
+    strncpy(TestParms->WriteFileName, "uvperf_write.dat", MAX_PATH-1);
+    TestParms->WriteFileName[MAX_PATH-1] = '\0';
+
     if (TestParms->fileIO){
         if (TestParms->TestType & TestTypeRead){
             TestParms->ReadFile = CreateFile(
                 TestParms->ReadFileName,
-                GENERIC_WRITE,
+                GENERIC_READ,
                 FILE_SHARE_READ,
                 NULL,
-                CREATE_ALWAYS,
+                OPEN_ALWAYS,    // Open the file if it exists; otherwise, create it
                 FILE_ATTRIBUTE_NORMAL,
                 NULL
             );
@@ -1665,10 +1671,10 @@ void FileIOOpen(PUVPERF_PARAM TestParms){
         if (TestParms->TestType & TestTypeWrite){
             TestParms->WriteFile = CreateFile(
                 TestParms->WriteFileName,
-                GENERIC_READ,
-                FILE_SHARE_READ,
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
                 NULL,
-                OPEN_EXISTING,
+                OPEN_ALWAYS,    // Open the file if it exists; otherwise, create it
                 FILE_ATTRIBUTE_NORMAL,
                 NULL
             );
@@ -1694,10 +1700,12 @@ void FileIOWrite(PUVPERF_PARAM TestParms, PUVPERF_TRANSFER_PARAM transferParam){
     DWORD bytesWritten;
     if (TestParms->fileIO && TestParms->WriteFile != INVALID_HANDLE_VALUE){
         if (!WriteFile(TestParms->WriteFile, transferParam->Buffer, TestParms->writelength, &bytesWritten, NULL)){
-            LOG_ERROR("failed writing %s\n", TestParms->WriteFileName);
+            DWORD errorCode = GetLastError(); // Retrieve the error code
+            LOG_ERROR("failed writing %s, Error code: %lu\n", TestParms->WriteFileName, errorCode);
         }
     }
 }
+
 
 void FileIOClose(PUVPERF_PARAM TestParms){
     if (TestParms->fileIO){
@@ -1867,6 +1875,8 @@ int main(int argc, char** argv) {
     if (ReadTest) K.SetPipePolicy(TestParms.InterfaceHandle, ReadTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1, &bIsoAsap);
     if (WriteTest) K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1, &bIsoAsap);
 
+    FileIOOpen(&TestParms);
+
     if (ReadTest)
     {
         SetThreadPriority(ReadTest->ThreadHandle, TestParms.priority);
@@ -1918,11 +1928,18 @@ int main(int argc, char** argv) {
             TestParms.isCancelled = TRUE;
 			LOG_MSG("Elapsed Time %.2f  seconds\n", (WriteTest->LastTick - WriteTest->StartTick) / 1000.0);
 		}
+
+        if(ReadTest && TestParms.fileIO)
+            FileIORead(&TestParms, ReadTest);
+        if(WriteTest && TestParms.fileIO)
+            FileIOWrite(&TestParms, WriteTest);
     
         ShowRunningStatus(ReadTest, WriteTest);
         // Only one key at a time.
         while (_kbhit()) _getch();
     }
+
+    FileIOClose(&TestParms);
 
     WaitForTestTransfer(ReadTest, 1000);
 	if ((ReadTest) && ReadTest->isRunning){
@@ -1936,15 +1953,10 @@ int main(int argc, char** argv) {
 		K.AbortPipe(TestParms.InterfaceHandle, WriteTest->Ep.PipeId);
 	}
 
-	if ((ReadTest) && ReadTest->isRunning) 
+	if ((ReadTest) && ReadTest->isRunning)
 		WaitForTestTransfer(ReadTest, INFINITE);
-	if ((WriteTest) && WriteTest->isRunning) 
+	if ((WriteTest) && WriteTest->isRunning)
 		WaitForTestTransfer(WriteTest, INFINITE);
-
-        
-    if(TestParms.fileIO){
-        fileIO(ReadTest, "Read.bin");
-    }
 
     if(ReadTest)
         ShowTransfer(ReadTest);
