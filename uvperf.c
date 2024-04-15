@@ -905,6 +905,9 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char **argv) {
             temp = argv[i] + 2;
             value = strtol(temp, NULL, 0);
             switch (arg) {
+            case 'V':
+                TestParms->verify = value;
+                break;
             case 'v':
                 TestParms->vid = value;
                 break;
