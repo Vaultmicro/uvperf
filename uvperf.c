@@ -703,7 +703,7 @@ int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam, PUVPERF_TRANSFER_HANDLE 
             handle->ReturnCode = ret;
             goto Done;
         }
-        
+
         if (!K.GetOverlappedResult(transferParam->TestParms->InterfaceHandle, &handle->Overlapped,
                                    &transferred, FALSE)) {
             if (!transferParam->TestParms->isUserAborted) {
@@ -797,7 +797,7 @@ void SetParamsDefaults(PUVPERF_PARAM TestParms) {
     TestParms->altf = -1;
     TestParms->endpoint = 0x00;
     TestParms->TransferMode = TRANSFER_MODE_SYNC;
-    TestParms->TestType = TestTypeNone;
+    TestParms->TestType = TestTypeRead;
     TestParms->timeout = 3000;
     TestParms->fileIO = FALSE;
     TestParms->bufferlength = 1024;
@@ -914,7 +914,7 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char **argv) {
     int status = 0;
 
     int c;
-    while ((c = getopt(argc, argv, "Vv:p:i:a:e:m:t:f:b:l:w:r:RWLS")) != -1) {
+    while ((c = getopt(argc, argv, "Vv:p:i:a:e:m:t:f:b:l:w:r:SRWL")) != -1) {
         switch (c) {
         case 'V':
             verbose = TRUE;
@@ -946,6 +946,9 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char **argv) {
             break;
         case 'b':
             TestParms->bufferCount = strtol(optarg, NULL, 0);
+            if (TestParms->bufferCount > 1) {
+                TestParms->TransferMode = TRANSFER_MODE_ASYNC;
+            }
             break;
         case 'l':
             TestParms->readlenth = strtol(optarg, NULL, 0);
@@ -974,6 +977,14 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char **argv) {
             break;
         }
     }
+
+    if (optind < argc) {
+        printf("Non-option arguments: ");
+        while (optind < argc)
+            printf("%s ", argv[optind++]);
+        printf("\n");
+    }
+
     return status;
 }
 
