@@ -6,8 +6,8 @@
  *   and report the results.
  *
  *   Usage:
- *   uvperf -VVERBOSE-vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE -tTIMEOUT
- *-lREADLENGTH -wWRITELENGTH -rREPEAT -S1 -R|-W|-L
+ *   uvperf -V VERBOSE-v VID -p PID -i INTERFACE -a AltInterface -e ENDPOINT -m TRANSFERMODE
+ * -t TIMEOUT -b BUFFERCOUNT -l READLENGTH -w WRITELENGTH -r REPEAT -S -R|W|L
  *
  *   -VVERBOSE       Enable verbose output
  *   -vVID           USB Vendor ID
@@ -17,10 +17,11 @@
  *   -eENDPOINT      USB Endpoint
  *   -mTRANSFERMODE  0 = isochronous, 1 = bulk
  *   -tTIMEOUT       USB Transfer Timeout
+ *   -bBUFFERCOUNT   Number of buffers to use
  *   -lREADLENGTH    Length of read transfers
  *   -wWRITELENGTH   Length of write transfers
  *   -rREPEAT        Number of transfers to perform
- *   -S 0|1          1 = Show transfer data, defulat = 0\n
+ *   -S              1 = Show transfer data, defulat = 0\n
  *   -R              Read Test
  *   -W              Write Test
  *   -L              Loop Test
@@ -694,24 +695,27 @@ int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam, PUVPERF_TRANSFER_HANDLE 
         // Only wait, cancelling & freeing is handled by the caller.
         if (WaitForSingleObject(handle->Overlapped.hEvent, transferParam->TestParms->timeout) !=
             WAIT_OBJECT_0) {
-            if (!transferParam->TestParms->isUserAborted)
+            if (!transferParam->TestParms->isUserAborted) {
                 ret = WinError(0);
-            else
+            } else
                 ret = -labs(GetLastError());
 
             handle->ReturnCode = ret;
             goto Done;
         }
+        
         if (!K.GetOverlappedResult(transferParam->TestParms->InterfaceHandle, &handle->Overlapped,
                                    &transferred, FALSE)) {
-            if (!transferParam->TestParms->isUserAborted)
+            if (!transferParam->TestParms->isUserAborted) {
                 ret = WinError(0);
-            else
+                LOGMSG0("여기!!!\n");
+            } else
                 ret = -labs(GetLastError());
 
             handle->ReturnCode = ret;
             goto Done;
         }
+
         if (transferParam->Ep.PipeType == UsbdPipeTypeIsochronous &&
             transferParam->Ep.PipeId & 0x80) {
             // iso read pipe
@@ -759,22 +763,23 @@ void VerifyLoopData() { return; }
 
 void ShowUsage() {
     LOG_MSG("Usage: uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE "
-            "-tTIMEOUT -fFileIO -lREADLENGTH -wWRITELENGTH -rREPEAT -S -R|-W|-L\n");
-    LOG_MSG("\t-vVID           USB Vendor ID\n");
-    LOG_MSG("\t-pPID           USB Product ID\n");
-    LOG_MSG("\t-iINTERFACE     USB Interface\n");
-    LOG_MSG("\t-aAltInterface  USB Alternate Interface\n");
-    LOG_MSG("\t-eENDPOINT      USB Endpoint\n");
-    LOG_MSG("\t-mTRANSFER      0 = isochronous, 1 = bulk\n");
-    LOG_MSG("\t-tTIMEOUT       USB Transfer Timeout\n");
-    LOG_MSG("\t-fFileIO        Use file I/O, default : FALSE\n");
-    LOG_MSG("\t-lREADLENGTH    Length of read transfers\n");
-    LOG_MSG("\t-wWRITELENGTH   Length of write transfers\n");
-    LOG_MSG("\t-rREPEAT        Number of transfers to perform\n");
-    LOG_MSG("\t-S              Show transfer data, default : FALSE\n");
-    LOG_MSG("\t-R              Read Test\n");
-    LOG_MSG("\t-W              Write Test\n");
-    LOG_MSG("\t-L              Loop Test\n");
+            "-tTIMEOUT -fFileIO -bBUFFERCOUNT-lREADLENGTH -wWRITELENGTH -rREPEAT -S -R|-W|-L\n");
+    LOG_MSG("\t-v VID           USB Vendor ID\n");
+    LOG_MSG("\t-p PID           USB Product ID\n");
+    LOG_MSG("\t-i INTERFACE     USB Interface\n");
+    LOG_MSG("\t-a AltInterface  USB Alternate Interface\n");
+    LOG_MSG("\t-e ENDPOINT      USB Endpoint\n");
+    LOG_MSG("\t-m TRANSFER      0 = isochronous, 1 = bulk\n");
+    LOG_MSG("\t-t TIMEOUT       USB Transfer Timeout\n");
+    LOG_MSG("\t-f FileIO        Use file I/O, default : FALSE\n");
+    LOG_MSG("\t-b BUFFERCOUNT   Number of buffers to use\n");
+    LOG_MSG("\t-l READLENGTH    Length of read transfers\n");
+    LOG_MSG("\t-w WRITELENGTH   Length of write transfers\n");
+    LOG_MSG("\t-r REPEAT        Number of transfers to perform\n");
+    LOG_MSG("\t-S               Show transfer data, default : FALSE\n");
+    LOG_MSG("\t-R               Read Test\n");
+    LOG_MSG("\t-W               Write Test\n");
+    LOG_MSG("\t-L               Loop Test\n");
     LOG_MSG("\n");
     LOG_MSG("Example:\n");
     LOG_MSG("uvperf -v0x1004 -p0xa000 -i0 -a0 -e0x81 -m1 -t1000 -l1024 -r1000 -R\n");
@@ -908,9 +913,8 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char **argv) {
     int value;
     int status = 0;
 
-    // using getopt
     int c;
-    while ((c = getopt(argc, argv, "V:v:p:i:a:e:m:t:f:l:w:r:S:R:W:L")) != -1) {
+    while ((c = getopt(argc, argv, "Vv:p:i:a:e:m:t:f:b:l:w:r:RWLS")) != -1) {
         switch (c) {
         case 'V':
             verbose = TRUE;
@@ -932,13 +936,16 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char **argv) {
             break;
         case 'm':
             TestParms->TransferMode =
-                (strtol(optarg, NULL, 0) ? TRANSFER_MODE_SYNC : TRANSFER_MODE_ASYNC);
+                (strtol(optarg, NULL, 0) ? TRANSFER_MODE_ASYNC : TRANSFER_MODE_SYNC);
             break;
         case 't':
             TestParms->timeout = strtol(optarg, NULL, 0);
             break;
         case 'f':
             TestParms->fileIO = TRUE;
+            break;
+        case 'b':
+            TestParms->bufferCount = strtol(optarg, NULL, 0);
             break;
         case 'l':
             TestParms->readlenth = strtol(optarg, NULL, 0);
@@ -980,7 +987,7 @@ void ShowParms(PUVPERF_PARAM TestParms) {
     LOG_MSG("\tInterface:     :  %d\n", TestParms->intf);
     LOG_MSG("\tAlt Interface: :  %d\n", TestParms->altf);
     LOG_MSG("\tEndpoint:      :  0x%02X\n", TestParms->endpoint);
-    LOG_MSG("\tTransfer mode  :  %s\n", TestParms->TransferMode ? "Bulk" : "Isochronous");
+    LOG_MSG("\tTransfer mode  :  %s\n", TestParms->TransferMode ? "Isochronous" : "Bulk");
     LOG_MSG("\tTimeout:       :  %d\n", TestParms->timeout);
     LOG_MSG("\tRead Length:   :  %d\n", TestParms->readlenth);
     LOG_MSG("\tWrite Length:  :  %d\n", TestParms->writelength);
@@ -1012,19 +1019,19 @@ void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM 
     // UNLOCK the display critical section
     LeaveCriticalSection(&DisplayCriticalSection);
 
-    if (readParam != NULL &&
-        (!gReadParamTransferParam.StartTick.tv_nsec ||
-         (gReadParamTransferParam.StartTick.tv_sec >= gReadParamTransferParam.LastTick.tv_sec) &&
-             (gReadParamTransferParam.StartTick.tv_nsec >=
-              gReadParamTransferParam.LastTick.tv_nsec))) {
+    if (readParam != NULL && (!gReadParamTransferParam.StartTick.tv_nsec ||
+                              (gReadParamTransferParam.StartTick.tv_sec +
+                               gReadParamTransferParam.StartTick.tv_nsec / 1000000000.0) >
+                                  (gReadParamTransferParam.LastTick.tv_sec +
+                                   gReadParamTransferParam.LastTick.tv_nsec / 1000000000.0))) {
         LOG_MSG("Synchronizing Read %d..\n", abs(gReadParamTransferParam.Packets));
     }
 
-    if (writeParam != NULL &&
-        (!gWriteParamTransferParam.StartTick.tv_nsec ||
-         (gWriteParamTransferParam.StartTick.tv_sec >= gWriteParamTransferParam.LastTick.tv_sec) &&
-             (gWriteParamTransferParam.StartTick.tv_nsec >=
-              gWriteParamTransferParam.LastTick.tv_nsec))) {
+    if (writeParam != NULL && (!gWriteParamTransferParam.StartTick.tv_nsec ||
+                               (gWriteParamTransferParam.StartTick.tv_sec +
+                                gWriteParamTransferParam.StartTick.tv_nsec / 1000000000.0) >
+                                   (gWriteParamTransferParam.LastTick.tv_sec +
+                                    gWriteParamTransferParam.LastTick.tv_nsec / 1000000000.0))) {
         LOG_MSG("Synchronizing Write %d..\n", abs(gWriteParamTransferParam.Packets));
     } else {
         if (readParam) {
@@ -1850,25 +1857,25 @@ int main(int argc, char **argv) {
             }
         }
 
-        if (ReadTest && ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec >= 300.0) {
-            LOG_VERBOSE("Over 60 seconds\n");
-            DWORD elapsedSeconds =
-                ((ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec) +
-                 (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 100000000.0);
-            LOG_MSG("Elapsed Time %.2f  seconds\n", elapsedSeconds);
-            TestParms.isUserAborted = TRUE;
-            TestParms.isCancelled = TRUE;
-        }
+        // if (ReadTest && ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec >= 300.0) {
+        //     LOG_VERBOSE("Over 60 seconds\n");
+        //     DWORD elapsedSeconds =
+        //         ((ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec) +
+        //          (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 100000000.0);
+        //     LOG_MSG("Elapsed Time %.2f  seconds\n", elapsedSeconds);
+        //     TestParms.isUserAborted = TRUE;
+        //     TestParms.isCancelled = TRUE;
+        // }
 
-        if (WriteTest && WriteTest->LastTick.tv_sec - WriteTest->StartTick.tv_sec >= 300.0) {
-            LOG_VERBOSE("Over 60 seconds\n");
-            DWORD elapsedSeconds =
-                ((ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec) +
-                 (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 100000000.0);
-            LOG_MSG("Elapsed Time %.2f  seconds\n", elapsedSeconds);
-            TestParms.isUserAborted = TRUE;
-            TestParms.isCancelled = TRUE;
-        }
+        // if (WriteTest && WriteTest->LastTick.tv_sec - WriteTest->StartTick.tv_sec >= 300.0) {
+        //     LOG_VERBOSE("Over 60 seconds\n");
+        //     DWORD elapsedSeconds =
+        //         ((ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec) +
+        //          (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 100000000.0);
+        //     LOG_MSG("Elapsed Time %.2f  seconds\n", elapsedSeconds);
+        //     TestParms.isUserAborted = TRUE;
+        //     TestParms.isCancelled = TRUE;
+        // }
 
         if (ReadTest && TestParms.fileIO)
             FileIORead(&TestParms, ReadTest);
