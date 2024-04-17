@@ -908,71 +908,63 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char **argv) {
     int value;
     int status = 0;
 
-    for (i = 1; i < argc; i++) {
-        if (argv[i][0] == '-') {
-            arg = argv[i][1];
-            temp = argv[i] + 2;
-            value = strtol(temp, NULL, 0);
-            switch (arg) {
-            case 'V':
-                verbose = TRUE;
-                break;
-            case 'v':
-                TestParms->vid = value;
-                break;
-            case 'p':
-                TestParms->pid = value;
-                break;
-            case 'i':
-                TestParms->intf = value;
-                break;
-            case 'a':
-                TestParms->altf = value;
-                break;
-            case 'e':
-                TestParms->endpoint = value;
-                break;
-            case 'b':
-                TestParms->bufferCount = value;
-                if (TestParms->bufferCount > 1) {
-                    TestParms->TransferMode = TRANSFER_MODE_ASYNC;
-                }
-                break;
-            case 'm':
-                TestParms->TransferMode = (value ? TRANSFER_MODE_SYNC : TRANSFER_MODE_ASYNC);
-                break;
-            case 't':
-                TestParms->timeout = value;
-                break;
-            case 'f':
-                TestParms->fileIO = TRUE;
-                break;
-            case 'r':
-                TestParms->repeat = value;
-                break;
-            case 'l':
-                TestParms->readlenth = value;
-                break;
-            case 'w':
-                TestParms->writelength = value;
-                break;
-            case 'S':
-                TestParms->ShowTransfer = TRUE;
-                break;
-            case 'R':
-                TestParms->TestType = TestTypeRead;
-                break;
-            case 'W':
-                TestParms->TestType = TestTypeWrite;
-                break;
-            case 'L':
-                TestParms->TestType = TestTypeLoop;
-                break;
-            default:
-                LOGERR0("Invalid argument\n");
-                status = -1;
-                break;
-            }
+    // using getopt
+    int c;
+    while ((c = getopt(argc, argv, "V:v:p:i:a:e:m:t:f:l:w:r:S:R:W:L")) != -1) {
+        switch (c) {
+        case 'V':
+            verbose = TRUE;
+            break;
+        case 'v':
+            TestParms->vid = strtol(optarg, NULL, 0);
+            break;
+        case 'p':
+            TestParms->pid = strtol(optarg, NULL, 0);
+            break;
+        case 'i':
+            TestParms->intf = strtol(optarg, NULL, 0);
+            break;
+        case 'a':
+            TestParms->altf = strtol(optarg, NULL, 0);
+            break;
+        case 'e':
+            TestParms->endpoint = strtol(optarg, NULL, 0);
+            break;
+        case 'm':
+            TestParms->TransferMode =
+                (strtol(optarg, NULL, 0) ? TRANSFER_MODE_SYNC : TRANSFER_MODE_ASYNC);
+            break;
+        case 't':
+            TestParms->timeout = strtol(optarg, NULL, 0);
+            break;
+        case 'f':
+            TestParms->fileIO = TRUE;
+            break;
+        case 'l':
+            TestParms->readlenth = strtol(optarg, NULL, 0);
+            break;
+        case 'w':
+            TestParms->writelength = strtol(optarg, NULL, 0);
+            break;
+        case 'r':
+            TestParms->repeat = strtol(optarg, NULL, 0);
+            break;
+        case 'S':
+            TestParms->ShowTransfer = TRUE;
+            break;
+        case 'R':
+            TestParms->TestType = TestTypeRead;
+            break;
+        case 'W':
+            TestParms->TestType = TestTypeWrite;
+            break;
+        case 'L':
+            TestParms->TestType = TestTypeLoop;
+            break;
+        default:
+            LOGERR0("Invalid argument\n");
+            status = -1;
+            break;
         }
     }
     return status;
@@ -988,7 +980,7 @@ void ShowParms(PUVPERF_PARAM TestParms) {
     LOG_MSG("\tInterface:     :  %d\n", TestParms->intf);
     LOG_MSG("\tAlt Interface: :  %d\n", TestParms->altf);
     LOG_MSG("\tEndpoint:      :  0x%02X\n", TestParms->endpoint);
-    LOG_MSG("\tTransfer mode  :  %s\n", TestParms->TransferMode ? "Isochronous" : "Bulk");
+    LOG_MSG("\tTransfer mode  :  %s\n", TestParms->TransferMode ? "Bulk" : "Isochronous");
     LOG_MSG("\tTimeout:       :  %d\n", TestParms->timeout);
     LOG_MSG("\tRead Length:   :  %d\n", TestParms->readlenth);
     LOG_MSG("\tWrite Length:  :  %d\n", TestParms->writelength);
@@ -1022,16 +1014,19 @@ void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM 
 
     if (readParam != NULL &&
         (!gReadParamTransferParam.StartTick.tv_nsec ||
-         gReadParamTransferParam.StartTick.tv_nsec >= gReadParamTransferParam.LastTick.tv_nsec)) {
+         (gReadParamTransferParam.StartTick.tv_sec >= gReadParamTransferParam.LastTick.tv_sec) &&
+             (gReadParamTransferParam.StartTick.tv_nsec >=
+              gReadParamTransferParam.LastTick.tv_nsec))) {
         LOG_MSG("Synchronizing Read %d..\n", abs(gReadParamTransferParam.Packets));
     }
 
     if (writeParam != NULL &&
         (!gWriteParamTransferParam.StartTick.tv_nsec ||
-         gWriteParamTransferParam.StartTick.tv_nsec >= gWriteParamTransferParam.LastTick.tv_nsec)) {
+         (gWriteParamTransferParam.StartTick.tv_sec >= gWriteParamTransferParam.LastTick.tv_sec) &&
+             (gWriteParamTransferParam.StartTick.tv_nsec >=
+              gWriteParamTransferParam.LastTick.tv_nsec))) {
         LOG_MSG("Synchronizing Write %d..\n", abs(gWriteParamTransferParam.Packets));
     } else {
-
         if (readParam) {
             GetAverageBytesSec(&gReadParamTransferParam, &bpsReadOverall);
             GetCurrentBytesSec(&gReadParamTransferParam, &bpsReadLastTransfer);
@@ -1070,7 +1065,6 @@ void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM 
                 LOG_MSG("Avg. Bytes/s: %.2f Transfers: %d %u Zero-length-transfer(s)\n",
                         bpsReadOverall + bpsWriteOverall, totalPackets, zlp);
             } else {
-                LOG_MSG("Average %.2f Bytes/s\n", bpsReadOverall + bpsWriteOverall);
                 LOG_MSG("Average %.2f Mbps\n",
                         (bpsReadOverall + bpsWriteOverall) * 8 / 1000 / 1000);
                 LOG_MSG("Total %d Transfers\n", totalPackets);
@@ -1435,9 +1429,13 @@ void GetAverageBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE *byteps) {
         return;
 
     if (transferParam->StartTick.tv_nsec &&
-        transferParam->StartTick.tv_nsec < transferParam->LastTick.tv_nsec) {
+        (transferParam->StartTick.tv_sec + transferParam->StartTick.tv_nsec / 1000000000.0) <
+            (transferParam->LastTick.tv_sec + transferParam->LastTick.tv_nsec / 1000000000.0)) {
+
         elapsedSeconds =
-            (transferParam->LastTick.tv_nsec - transferParam->StartTick.tv_nsec) / 1000.0;
+            (transferParam->LastTick.tv_sec - transferParam->StartTick.tv_sec) +
+            (transferParam->LastTick.tv_nsec - transferParam->StartTick.tv_nsec) / 1000000000.0;
+
         *byteps = (DOUBLE)transferParam->TotalTransferred / elapsedSeconds;
     } else {
         *byteps = 0;
@@ -1449,9 +1447,14 @@ void GetCurrentBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE *byteps) {
         return;
 
     if (transferParam->LastStartTick.tv_nsec &&
-        transferParam->LastStartTick.tv_nsec < transferParam->LastTick.tv_nsec) {
+        (transferParam->LastStartTick.tv_sec +
+         transferParam->LastStartTick.tv_nsec / 1000000000.0) <
+            (transferParam->LastTick.tv_sec + transferParam->LastTick.tv_nsec / 1000000000.0)) {
+
         elapsedSeconds =
-            (transferParam->LastTick.tv_nsec - transferParam->LastStartTick.tv_nsec) / 1000.0;
+            (transferParam->LastTick.tv_sec - transferParam->LastStartTick.tv_sec) +
+            (transferParam->LastTick.tv_nsec - transferParam->LastStartTick.tv_nsec) / 1000000000.0;
+
         *byteps = (DOUBLE)transferParam->LastTransferred / elapsedSeconds;
     } else {
         *byteps = 0;
@@ -1529,14 +1532,15 @@ void ShowTransfer(PUVPERF_TRANSFER_PARAM transferParam) {
             LOG_MSG("\tOther %d  Errors\n", transferParam->TotalErrorCount);
         }
 
-        LOG_MSG("\tAverage %.2f  Bytes/sec\n", BytepsAverage);
         LOG_MSG("\tAverage %.2f  Mbps/sec\n", (BytepsAverage * 8) / 1000 / 1000);
 
         if (transferParam->StartTick.tv_nsec &&
-            transferParam->StartTick.tv_nsec < transferParam->LastTick.tv_nsec) {
+            (transferParam->LastStartTick.tv_sec +
+             transferParam->LastStartTick.tv_nsec / 1000000000.0) <
+                (transferParam->LastTick.tv_sec + transferParam->LastTick.tv_nsec / 1000000000.0)) {
             elapsedSeconds =
-                (transferParam->LastTick.tv_nsec - transferParam->StartTick.tv_nsec) / 1000.0;
-
+                (transferParam->LastTick.tv_sec - transferParam->StartTick.tv_sec) +
+                (transferParam->LastTick.tv_nsec - transferParam->StartTick.tv_nsec) / 1000000000.0;
             LOG_MSG("\tElapsed Time %.2f  seconds\n", elapsedSeconds);
         }
 
@@ -1846,20 +1850,24 @@ int main(int argc, char **argv) {
             }
         }
 
-        if (ReadTest && ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec >= 600000000.0) {
+        if (ReadTest && ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec >= 300.0) {
             LOG_VERBOSE("Over 60 seconds\n");
+            DWORD elapsedSeconds =
+                ((ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec) +
+                 (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 100000000.0);
+            LOG_MSG("Elapsed Time %.2f  seconds\n", elapsedSeconds);
             TestParms.isUserAborted = TRUE;
             TestParms.isCancelled = TRUE;
-            LOG_MSG("Elapsed Time %.2f  seconds\n",
-                    (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 1000.0);
         }
 
-        if (WriteTest &&
-            WriteTest->LastTick.tv_nsec - WriteTest->StartTick.tv_nsec >= 600000000.0) {
+        if (WriteTest && WriteTest->LastTick.tv_sec - WriteTest->StartTick.tv_sec >= 300.0) {
+            LOG_VERBOSE("Over 60 seconds\n");
+            DWORD elapsedSeconds =
+                ((ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec) +
+                 (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 100000000.0);
+            LOG_MSG("Elapsed Time %.2f  seconds\n", elapsedSeconds);
             TestParms.isUserAborted = TRUE;
             TestParms.isCancelled = TRUE;
-            LOG_MSG("Elapsed Time %.2f  seconds\n",
-                    (WriteTest->LastTick.tv_nsec - WriteTest->StartTick.tv_nsec) / 1000.0);
         }
 
         if (ReadTest && TestParms.fileIO)
