@@ -1071,17 +1071,17 @@ void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM 
             goodIsoPackets += gWriteParamTransferParam.IsochResults.GoodPackets;
             badIsoPackets += gWriteParamTransferParam.IsochResults.BadPackets;
         }
-
         if (totalIsoPackets) {
-            LOG_MSG("Avg. Bytes/s: %.2f Transfers: %d Bytes/s: %.2f ISO-Packets "
-                    "(Total/Good/Bad):%u/%u/%u\n",
-                    bpsReadOverall + bpsWriteOverall, totalPackets,
-                    bpsReadLastTransfer + bpsWriteLastTransfer, totalIsoPackets, goodIsoPackets,
+            LOG_MSG("Average %.2f Mbps\n", (bpsReadOverall + bpsWriteOverall) * 8 / 1000 / 1000);
+            LOG_MSG("Total %d Transfer\n", totalPackets);
+            LOG_MSG("ISO-Packets (Total/Good/Bad) : %u/%u/%u\n", totalIsoPackets, goodIsoPackets,
                     badIsoPackets);
         } else {
             if (zlp) {
-                LOG_MSG("Avg. Bytes/s: %.2f Transfers: %d %u Zero-length-transfer(s)\n",
-                        bpsReadOverall + bpsWriteOverall, totalPackets, zlp);
+                LOG_MSG("Average %.2f Mbps\n",
+                        (bpsReadOverall + bpsWriteOverall) * 8 / 1000 / 1000);
+                LOG_MSG("Transfers: %u\n", totalPackets);
+                LOG_MSG("Zero-length-transfer(s)\n", zlp);
             } else {
                 LOG_MSG("Average %.2f Mbps\n",
                         (bpsReadOverall + bpsWriteOverall) * 8 / 1000 / 1000);
