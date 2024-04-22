@@ -762,8 +762,10 @@ Done:
 void VerifyLoopData() { return; }
 
 void ShowUsage() {
-    LOG_MSG("Usage: uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE "
-            "-tTIMEOUT -fFileIO -bBUFFERCOUNT-lREADLENGTH -wWRITELENGTH -rREPEAT -S -R|-W|-L\n");
+    LOG_MSG("Version : V0.2.0\n\n");
+    LOG_MSG(
+        "Usage: uvperf -v VID -p PID -i INTERFACE -a AltInterface -e ENDPOINT -m TRANSFERMODE "
+        "-t TIMEOUT -f FileIO -b BUFFERCOUNT-l READLENGTH -w WRITELENGTH -r REPEAT -S -R|-W|-L\n");
     LOG_MSG("\t-v VID           USB Vendor ID\n");
     LOG_MSG("\t-p PID           USB Product ID\n");
     LOG_MSG("\t-i INTERFACE     USB Interface\n");
@@ -782,7 +784,7 @@ void ShowUsage() {
     LOG_MSG("\t-L               Loop Test\n");
     LOG_MSG("\n");
     LOG_MSG("Example:\n");
-    LOG_MSG("uvperf -v0x1004 -p0xa000 -i0 -a0 -e0x81 -m1 -t1000 -l1024 -r1000 -R\n");
+    LOG_MSG("uvperf -v 0x1004 -p 0xa000 -i 0 -a 0 -e 0x81 -m 0 -t 1000 -l 1024 -r 1000 -R\n");
     LOG_MSG("This will perform 1000 bulk transfers of 1024 bytes to endpoint 0x81\n");
     LOG_MSG("on interface 0, alternate setting 0 of a device with VID 0x1004 and PID 0xA000.\n");
     LOG_MSG("The transfers will have a timeout of 1000ms.\n");
@@ -841,31 +843,42 @@ int GetDeviceInfoFromList(PUVPERF_PARAM TestParms) {
             return -1;
         }
 
-        LOG_MSG("Select device (1-%u) :", count);
-        while (_kbhit()) {
-            _getch();
-        }
+        int validSelection = 0;
 
-        selection = (CHAR)_getche();
-        selection -= (UCHAR)'0';
-        LOGMSG0("\n\n");
-
-        if (selection > 0 && selection <= count) {
-            count = 0;
-            while (LstK_MoveNext(TestParms->DeviceList, &deviceInfo) && ++count != selection) {
-                // disabled
-                LibK_SetContext(deviceInfo, KLIB_HANDLE_TYPE_LSTINFOK, (KLIB_USER_CONTEXT)FALSE);
+        do {
+            LOG_MSG("Select device (1-%u): ", count);
+            while (_kbhit()) {
+                _getch();
             }
 
-            if (!deviceInfo) {
-                LOGERR0("unknown selection\n");
+            selection = (CHAR)_getche() - (UCHAR)'0';
+            LOGMSG0("\n");
+            if (selection == 'q' - '0') {
                 return -1;
             }
+            if (selection > 0 && selection <= count) {
+                count = 0;
+                while (LstK_MoveNext(TestParms->DeviceList, &deviceInfo) && ++count != selection) {
+                    // disabled
+                    LibK_SetContext(deviceInfo, KLIB_HANDLE_TYPE_LSTINFOK,
+                                    (KLIB_USER_CONTEXT)FALSE);
+                }
 
-            TestParms->SelectedDeviceProfile = deviceInfo;
+                if (!deviceInfo) {
+                    LOGERR0("Unknown selection\n");
+                    continue;
+                }
 
-            return ERROR_SUCCESS;
-        }
+                TestParms->SelectedDeviceProfile = deviceInfo;
+                validSelection = 1;
+            } else {
+                fprintf(stderr, "Invalid selection. Please select a number between 1 and %u\n",
+                        count);
+                fprintf(stderr, "Press 'q' to quit\n");
+            }
+        } while (!validSelection);
+
+        return ERROR_SUCCESS;
     }
 
     return -1;
@@ -1703,33 +1716,48 @@ int main(int argc, char **argv) {
     // todo : make a flag for this
     LOG_VERBOSE("GetDeviceInfoFromList\n");
     if (TestParms.intf == -1 || TestParms.altf == -1 || TestParms.endpoint == 0x00) {
-        if (GetDeviceInfoFromList(&TestParms) < 0)
-            goto Done;
-
-        LOG_MSG("select Read or Write or Loop\n");
-        LOG_MSG("R - Read\n");
-        LOG_MSG("W - Write\n");
-        LOG_MSG("L - Loop\n");
-        LOG_MSG("Selection: ");
-
-        key = _getch();
-        switch (key) {
-        case 'R':
-        case 'r':
-            TestParms.TestType = TestTypeRead;
-            break;
-        case 'W':
-        case 'w':
-            TestParms.TestType = TestTypeWrite;
-            break;
-        case 'L':
-        case 'l':
-            TestParms.TestType = TestTypeLoop;
-            break;
-        default:
-            LOGERR0("Invalid selection\n");
+        if (GetDeviceInfoFromList(&TestParms) < 0) {
             goto Done;
         }
+
+        fprintf(stderr, "select Read or Write or Loop\n");
+        fprintf(stderr, "R - Read\n");
+        fprintf(stderr, "W - Write\n");
+        fprintf(stderr, "L - Loop\n");
+        fprintf(stderr, "Selection: ");
+
+        int validInput = 0; // Flag to check for valid input
+        do {
+            key = _getch(); // Read character without echoing
+            switch (key) {
+            case 'Q':
+            case 'q':
+                return 0;
+            case 'R':
+            case 'r':
+                TestParms.TestType = TestTypeRead;
+                validInput = 1; // Set flag to valid
+                break;
+            case 'W':
+            case 'w':
+                TestParms.TestType = TestTypeWrite;
+                validInput = 1; // Set flag to valid
+                break;
+            case 'L':
+            case 'l':
+                TestParms.TestType = TestTypeLoop;
+                validInput = 1; // Set flag to valid
+                break;
+            default:
+                fprintf(stderr, "Invalid selection. Please choose again\n");
+                fprintf(stderr, "Q - Quit\n");
+                fprintf(stderr, "R - Read\n");
+                fprintf(stderr, "W - Write\n");
+                fprintf(stderr, "L - Loop\n");
+                fprintf(stderr, "Selection: ");
+                break;
+            }
+        } while (!validInput); // Continue until a valid input is entered
     } else {
         LOG_VERBOSE("GetDeviceParam\n");
         if (GetDeviceParam(&TestParms) < 0) {
@@ -1815,8 +1843,6 @@ int main(int argc, char **argv) {
         ShowTransfer(ReadTest);
     if (WriteTest)
         ShowTransfer(WriteTest);
-
-    key = _getch();
 
     bIsoAsap = (UCHAR)TestParms.UseIsoAsap;
     if (ReadTest)
