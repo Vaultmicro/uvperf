@@ -1763,15 +1763,11 @@ int main(int argc, char **argv) {
             goto Done;
         }
         KLST_DEVINFO_HANDLE deviceInfo;
-        KUSB_HANDLE interfaceHandle;
-        USB_INTERFACE_DESCRIPTOR interfaceDescriptor;
         WINUSB_PIPE_INFORMATION_EX pipeInfo[32];
         UCHAR altSetting = 0;
         int userChoice;
         UCHAR pipeIndex;
 
-        KUSB_HANDLE associatedHandle;
-        UINT transferred;
         int validInput = 0; // Flag to check for valid input
         do {
             while (LstK_MoveNext(TestParms.DeviceList, &deviceInfo)) {
@@ -1839,7 +1835,7 @@ int main(int argc, char **argv) {
             goto Done;
         }
     }
-    
+
     LOG_VERBOSE("Open Bench\n");
     if (!Bench_Open(&TestParms)) {
         goto Done;
