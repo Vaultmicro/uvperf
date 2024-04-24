@@ -45,6 +45,7 @@
 #include <wtypes.h>
 
 #include "include/libusbk.h"
+#include "include/log.h"
 #include "include/lusbk_linked_list.h"
 #include "include/lusbk_shared.h"
 
@@ -58,22 +59,22 @@ BOOL verbose = FALSE;
             printf(format, ##__VA_ARGS__);                                                         \
     } while (0)
 
-#define LOGVDAT(format, ...) printf("[data-mismatch] " format, ##__VA_ARGS__)
+// #define LOGVDAT(format, ...) printf("[data-mismatch] " format, ##__VA_ARGS__)
 
-#define LOG(LogTypeString, format, ...)                                                            \
-    printf("%s[%s] " format, LogTypeString, __FUNCTION__, __VA_ARGS__)
-#define LOG_NO_FN(LogTypeString, format, ...)                                                      \
-    printf("%s" format "%s", LogTypeString, ##__VA_ARGS__, "")
+// #define LOG(LogTypeString, format, ...)                                                            \
+//     printf("%s[%s] " format, LogTypeString, __FUNCTION__, __VA_ARGS__)
+// #define LOG_NO_FN(LogTypeString, format, ...)                                                      \
+//     printf("%s" format "%s", LogTypeString, ##__VA_ARGS__, "")
 
-#define LOG_ERROR(format, ...) LOG("ERROR: ", format, ##__VA_ARGS__)
-#define LOG_WARNING(format, ...) LOG("WARNING: ", format, ##__VA_ARGS__)
-#define LOG_MSG(format, ...) LOG_NO_FN("", format, ##__VA_ARGS__)
-#define LOG_DEBUG(format, ...) LOG_NO_FN("", format, ##__VA_ARGS__)
+// #define LOG_ERROR(format, ...) LOG("ERROR: ", format, ##__VA_ARGS__)
+// #define LOG_WARNING(format, ...) LOG("WARNING: ", format, ##__VA_ARGS__)
+// #define LOG_MSG(format, ...) LOG_NO_FN("", format, ##__VA_ARGS__)
+// #define LOG_DEBUG(format, ...) LOG_NO_FN("", format, ##__VA_ARGS__)
 
-#define LOGERR0(message) LOG_ERROR("%s\n", message)
-#define LOGWAR0(message) LOG_WARNING("%s\n", message)
-#define LOGMSG0(message) LOG_MSG("%s\n", message)
-#define LOGDBG0(message) LOG_DEBUG("%s\n", message)
+// #define LOGERR0(message) LOG_ERROR("%s\n", message)
+// #define LOGWAR0(message) LOG_WARNING("%s\n", message)
+// #define LOGMSG0(message) LOG_MSG("%s\n", message)
+// #define LOGDBG0(message) LOG_DEBUG("%s\n", message)
 
 #define VerifyListLock(mTest)                                                                      \
     while (InterlockedExchange(&((mTest)->verifyLock), 1) != 0)                                    \
@@ -280,6 +281,34 @@ void FileIOClose(PUVPERF_PARAM TestParms);
 #define ENDPOINT_TYPE(TransferParam) (TransferParam->Ep.PipeType & 3)
 const char *TestDisplayString[] = {"None", "Read", "Write", "Loop", NULL};
 const char *EndpointTypeDisplayString[] = {"Control", "Isochronous", "Bulk", "Interrupt", NULL};
+
+char *GetWinErrorMessage(DWORD errorCode) {
+    char *buffer = NULL;
+
+    errorCode = errorCode ? errorCode : GetLastError();
+    if (!errorCode)
+        return NULL;
+
+    if (errorCode == ERROR_GEN_FAILURE || errorCode == ERROR_DEVICE_NOT_CONNECTED) {
+        fprintf(stderr, "Device disconnected.\n");
+    }
+
+    DWORD flags =
+        FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_IGNORE_INSERTS;
+    if (FormatMessageA(flags, NULL, errorCode, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                       (LPSTR)&buffer, 0, NULL) == 0) {
+        fprintf(stderr, "Failed to retrieve the error message for code %lu\n", errorCode);
+        return NULL;
+    }
+
+    return buffer;
+}
+
+void FreeWinErrorMessage(char *message) {
+    if (message) {
+        LocalFree(message);
+    }
+}
 
 LONG WinError(__in_opt DWORD errorCode) {
     LPSTR buffer = NULL;
@@ -1162,6 +1191,9 @@ DWORD TransferThread(PUVPERF_TRANSFER_PARAM transferParam) {
                           transferParam->RunningErrorCount, transferParam->TestParms->retry + 1,
                           ret);
 
+                char *buffer = GetWinErrorMessage(-ret);
+                LOG_ERROR("error message : %s\n", buffer);
+                FreeWinErrorMessage(buffer);
                 K.ResetPipe(transferParam->TestParms->InterfaceHandle, transferParam->Ep.PipeId);
 
                 if (transferParam->RunningErrorCount > transferParam->TestParms->retry)
@@ -1223,6 +1255,9 @@ Done:
                     !transferParam->TestParms->isUserAborted) {
                     ret = WinError(0);
                     LOG_ERROR("failed cancelling transfer ret = %d\n", ret);
+                    char *buffer = GetWinErrorMessage(-ret);
+                    LOG_ERROR("error message : %s", buffer);
+                    FreeWinErrorMessage(buffer);
                 } else {
                     CloseHandle(transferParam->TransferHandles[i].Overlapped.hEvent);
                     transferParam->TransferHandles[i].Overlapped.hEvent = NULL;
@@ -1702,7 +1737,9 @@ int main(int argc, char **argv) {
     LOG_VERBOSE("LibusbK device List Initialize\n");
     if (!LstK_Init(&TestParms.DeviceList, 0)) {
         ec = GetLastError();
-        LOG_ERROR("Failed to initialize device list ec=%08Xh\n", ec);
+        char *buffer = GetWinErrorMessage(ec);
+        LOG_ERROR("Failed to initialize device list ec=%08Xh, message %s: \n", ec, buffer);
+        FreeWinErrorMessage(buffer);
         goto Done;
     }
 
@@ -1778,7 +1815,11 @@ int main(int argc, char **argv) {
         if (TestParms.UseRawIO != 0xFF) {
             if (!K.SetPipePolicy(TestParms.InterfaceHandle, ReadTest->Ep.PipeId, RAW_IO, 1,
                                  &TestParms.UseRawIO)) {
-                LOG_ERROR("SetPipePolicy:RAW_IO failed. ErrorCode=%08Xh\n", GetLastError());
+                ec = GetLastError();
+                char *buffer = GetWinErrorMessage(ec);
+                LOG_ERROR("SetPipePolicy:RAW_IO failed. ErrorCode=%08Xh message : %s\n", ec,
+                          buffer);
+                FreeWinErrorMessage(buffer);
                 goto Done;
             }
         }
@@ -1792,15 +1833,22 @@ int main(int argc, char **argv) {
         if (TestParms.fixedIsoPackets) {
             if (!K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId,
                                  ISO_NUM_FIXED_PACKETS, 2, &TestParms.fixedIsoPackets)) {
-                LOG_ERROR("SetPipePolicy:ISO_NUM_FIXED_PACKETS failed. ErrorCode=0x%08X\n",
-                          GetLastError());
+                ec = GetLastError();
+                char *buffer = GetWinErrorMessage(ec);
+                LOG_ERROR(
+                    "SetPipePolicy:ISO_NUM_FIXED_PACKETS failed. ErrorCode=0x%08X, message : %s\n",
+                    ec, buffer);
+                FreeWinErrorMessage(buffer);
                 goto Done;
             }
         }
         if (TestParms.UseRawIO != 0xFF) {
             if (!K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId, RAW_IO, 1,
                                  &TestParms.UseRawIO)) {
-                LOG_ERROR("SetPipePolicy:RAW_IO failed. ErrorCode=0x%08X\n", GetLastError());
+                ec = GetLastError();
+                char *buffer = GetWinErrorMessage(ec);
+                LOG_ERROR("SetPipePolicy:RAW_IO failed. ErrorCode=0x%08X\n", ec, buffer);
+                FreeWinErrorMessage(buffer);
                 goto Done;
             }
         }
@@ -1823,7 +1871,10 @@ int main(int argc, char **argv) {
         UINT frameNumber;
         LOG_VERBOSE("GetCurrentFrameNumber\n");
         if (!K.GetCurrentFrameNumber(TestParms.InterfaceHandle, &frameNumber)) {
-            LOG_ERROR("GetCurrentFrameNumber Failed. ErrorCode=%u", GetLastError());
+            ec = GetLastError();
+            char *buffer = GetWinErrorMessage(ec);
+            LOG_ERROR("GetCurrentFrameNumber Failed. ErrorCode=%u, message : %s", ec, buffer);
+            FreeWinErrorMessage(buffer);
             goto Done;
         }
         frameNumber += TestParms.bufferCount * 2;
