@@ -125,6 +125,7 @@ typedef struct _UVPERF_PARAM {
     int intf;
     int altf;
     int endpoint;
+    int Timer;
     int timeout;
     int refresh;
     int retry;
@@ -792,15 +793,16 @@ void VerifyLoopData() { return; }
 
 void ShowUsage() {
     LOG_MSG("Version : V0.2.0\n\n");
-    LOG_MSG(
-        "Usage: uvperf -v VID -p PID -i INTERFACE -a AltInterface -e ENDPOINT -m TRANSFERMODE "
-        "-t TIMEOUT -f FileIO -b BUFFERCOUNT-l READLENGTH -w WRITELENGTH -r REPEAT -S -R|-W|-L\n");
+    LOG_MSG("Usage: uvperf -v VID -p PID -i INTERFACE -a AltInterface -e ENDPOINT -m TRANSFERMODE "
+            "-T TIMER -t TIMEOUT -f FileIO -b BUFFERCOUNT-l READLENGTH -w WRITELENGTH -r REPEAT -S "
+            "-R|-W|-L\n");
     LOG_MSG("\t-v VID           USB Vendor ID\n");
     LOG_MSG("\t-p PID           USB Product ID\n");
     LOG_MSG("\t-i INTERFACE     USB Interface\n");
     LOG_MSG("\t-a AltInterface  USB Alternate Interface\n");
     LOG_MSG("\t-e ENDPOINT      USB Endpoint\n");
     LOG_MSG("\t-m TRANSFER      0 = isochronous, 1 = bulk\n");
+    LOG_MSG("\t-T TIMER         Timer in seconds\n");
     LOG_MSG("\t-t TIMEOUT       USB Transfer Timeout\n");
     LOG_MSG("\t-f FileIO        Use file I/O, default : FALSE\n");
     LOG_MSG("\t-b BUFFERCOUNT   Number of buffers to use\n");
@@ -829,6 +831,7 @@ void SetParamsDefaults(PUVPERF_PARAM TestParms) {
     TestParms->endpoint = 0x00;
     TestParms->TransferMode = TRANSFER_MODE_SYNC;
     TestParms->TestType = TestTypeRead;
+    TestParms->Timer = 0;
     TestParms->timeout = 3000;
     TestParms->fileIO = FALSE;
     TestParms->bufferlength = 1024;
@@ -881,7 +884,7 @@ int GetDeviceInfoFromList(PUVPERF_PARAM TestParms) {
             }
 
             selection = (CHAR)_getche() - (UCHAR)'0';
-            LOGMSG0("\n");
+            fprintf(stderr, "\n");
             if (selection == 'q' - '0') {
                 return -1;
             }
@@ -979,6 +982,9 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char **argv) {
         case 'm':
             TestParms->TransferMode =
                 (strtol(optarg, NULL, 0) ? TRANSFER_MODE_ASYNC : TRANSFER_MODE_SYNC);
+            break;
+        case 'T':
+            TestParms->Timer = strtol(optarg, NULL, 0);
             break;
         case 't':
             TestParms->timeout = strtol(optarg, NULL, 0);
@@ -1756,55 +1762,88 @@ int main(int argc, char **argv) {
         if (GetDeviceInfoFromList(&TestParms) < 0) {
             goto Done;
         }
+        KLST_DEVINFO_HANDLE deviceInfo;
+        KUSB_HANDLE interfaceHandle;
+        USB_INTERFACE_DESCRIPTOR interfaceDescriptor;
+        WINUSB_PIPE_INFORMATION_EX pipeInfo[32];
+        UCHAR altSetting = 0;
+        int userChoice;
+        UCHAR pipeIndex;
 
-        fprintf(stderr, "select Read or Write or Loop\n");
-        fprintf(stderr, "R - Read\n");
-        fprintf(stderr, "W - Write\n");
-        fprintf(stderr, "L - Loop\n");
-        fprintf(stderr, "Selection: ");
-
+        KUSB_HANDLE associatedHandle;
+        UINT transferred;
         int validInput = 0; // Flag to check for valid input
         do {
-            key = _getch(); // Read character without echoing
-            switch (key) {
-            case 'Q':
-            case 'q':
-                return 0;
-            case 'R':
-            case 'r':
-                TestParms.TestType = TestTypeRead;
-                validInput = 1; // Set flag to valid
-                break;
-            case 'W':
-            case 'w':
-                TestParms.TestType = TestTypeWrite;
-                validInput = 1; // Set flag to valid
-                break;
-            case 'L':
-            case 'l':
-                TestParms.TestType = TestTypeLoop;
-                validInput = 1; // Set flag to valid
-                break;
-            default:
-                fprintf(stderr, "Invalid selection. Please choose again\n");
-                fprintf(stderr, "Q - Quit\n");
-                fprintf(stderr, "R - Read\n");
-                fprintf(stderr, "W - Write\n");
-                fprintf(stderr, "L - Loop\n");
-                fprintf(stderr, "Selection: ");
+            while (LstK_MoveNext(TestParms.DeviceList, &deviceInfo)) {
+                if (!LibK_LoadDriverAPI(&K, deviceInfo->DriverID)) {
+                    WinError(GetLastError());
+                    printf("Cannot load driver API for %s\n", GetDrvIdString(deviceInfo->DriverID));
+                    continue;
+                }
+
+                if (!K.Init(&TestParms.InterfaceHandle, deviceInfo)) {
+                    WinError(GetLastError());
+                    printf("Cannot initialize device interface for %s\n", deviceInfo->DevicePath);
+                    continue;
+                }
+
+                printf("Device %s initialized successfully.\n", deviceInfo->DevicePath);
+
+                printf("Scanning for pipes...\n");
+                pipeIndex = 0;
+                while (K.QueryPipeEx(TestParms.InterfaceHandle, altSetting, pipeIndex,
+                                     &pipeInfo[pipeIndex])) {
+                    printf("Pipe %d: Type : %11s, %5s, MaxPacketSize=%d\n", pipeIndex + 1,
+                           EndpointTypeDisplayString[pipeInfo[pipeIndex].PipeType],
+                           (pipeInfo[pipeIndex].PipeId & USB_ENDPOINT_DIRECTION_MASK) ? "Read"
+                                                                                      : "Write",
+                           pipeInfo[pipeIndex].MaximumPacketSize);
+                    pipeIndex++;
+                }
+
+                if (pipeIndex == 0) {
+                    printf("No pipes available.\n");
+                    continue;
+                }
+
+                printf("Enter the number of the pipe to use for transfer (1-%d), 'Q' to quit: ",
+                       pipeIndex);
+                int ch = _getche();
+                printf("\n");
+
+                if (ch == 'Q' || ch == 'q') {
+                    printf("Exiting program.\n");
+                    return 0; // 종료
+                }
+
+                userChoice = ch - '0';
+                if (userChoice < 1 || userChoice > pipeIndex) {
+                    printf("Invalid pipe selection.\n");
+                    continue;
+                }
+
+                TestParms.endpoint = (int)(pipeInfo[userChoice - 1].PipeId);
+                TestParms.TestType = (pipeInfo[userChoice - 1].PipeId & USB_ENDPOINT_DIRECTION_MASK)
+                                         ? TestTypeRead
+                                         : TestTypeWrite;
+
+                printf("Selected pipe %d\n", pipeInfo[userChoice - 1].PipeId);
+
+                validInput = 1;
                 break;
             }
-        } while (!validInput); // Continue until a valid input is entered
+        } while (!validInput);
     } else {
         LOG_VERBOSE("GetDeviceParam\n");
         if (GetDeviceParam(&TestParms) < 0) {
             goto Done;
         }
     }
-
+    
     LOG_VERBOSE("Open Bench\n");
-    if (!Bench_Open(&TestParms))
+    if (!Bench_Open(&TestParms)) {
         goto Done;
+    }
 
     if (TestParms.TestType & TestTypeRead) {
         LOG_VERBOSE("CreateTransferParam for ReadTest\n");
@@ -1835,9 +1874,9 @@ int main(int argc, char **argv) {
                                  ISO_NUM_FIXED_PACKETS, 2, &TestParms.fixedIsoPackets)) {
                 ec = GetLastError();
                 char *buffer = GetWinErrorMessage(ec);
-                LOG_ERROR(
-                    "SetPipePolicy:ISO_NUM_FIXED_PACKETS failed. ErrorCode=0x%08X, message : %s\n",
-                    ec, buffer);
+                LOG_ERROR("SetPipePolicy:ISO_NUM_FIXED_PACKETS failed. ErrorCode=0x%08X, "
+                          "message : %s\n",
+                          ec, buffer);
                 FreeWinErrorMessage(buffer);
                 goto Done;
             }
@@ -1945,25 +1984,27 @@ int main(int argc, char **argv) {
             }
         }
 
-        // if (ReadTest && ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec >= 300.0) {
-        //     LOG_VERBOSE("Over 60 seconds\n");
-        //     DWORD elapsedSeconds =
-        //         ((ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec) +
-        //          (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 100000000.0);
-        //     LOG_MSG("Elapsed Time %.2f  seconds\n", elapsedSeconds);
-        //     TestParms.isUserAborted = TRUE;
-        //     TestParms.isCancelled = TRUE;
-        // }
+        if (TestParms.Timer && ReadTest &&
+            ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec >= TestParms.Timer) {
+            LOG_VERBOSE("Over 60 seconds\n");
+            DWORD elapsedSeconds =
+                ((ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec) +
+                 (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 100000000.0);
+            LOG_MSG("Elapsed Time %.2f  seconds\n", elapsedSeconds);
+            TestParms.isUserAborted = TRUE;
+            TestParms.isCancelled = TRUE;
+        }
 
-        // if (WriteTest && WriteTest->LastTick.tv_sec - WriteTest->StartTick.tv_sec >= 300.0) {
-        //     LOG_VERBOSE("Over 60 seconds\n");
-        //     DWORD elapsedSeconds =
-        //         ((ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec) +
-        //          (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 100000000.0);
-        //     LOG_MSG("Elapsed Time %.2f  seconds\n", elapsedSeconds);
-        //     TestParms.isUserAborted = TRUE;
-        //     TestParms.isCancelled = TRUE;
-        // }
+        if (TestParms.Timer && WriteTest &&
+            WriteTest->LastTick.tv_sec - WriteTest->StartTick.tv_sec >= TestParms.Timer) {
+            LOG_VERBOSE("Over 60 seconds\n");
+            DWORD elapsedSeconds =
+                ((ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec) +
+                 (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 100000000.0);
+            LOG_MSG("Elapsed Time %.2f  seconds\n", elapsedSeconds);
+            TestParms.isUserAborted = TRUE;
+            TestParms.isCancelled = TRUE;
+        }
 
         if (ReadTest && TestParms.fileIO)
             FileIORead(&TestParms, ReadTest);
