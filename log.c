@@ -21,7 +21,7 @@ int LogPrint(const int line, const char *func, const char *format, ...)
         return -1;
     }
 
-    printf("[%02d:%02d:%02d.%03d] | <%s:%d> ", rt.tm_hour, rt.tm_min, rt.tm_sec, (int)(tv.tv_usec / 1000), func, line);
+    printf("[%02d:%02d:%02d.%03d] | ", rt.tm_hour, rt.tm_min, rt.tm_sec, (int)(tv.tv_usec / 1000));
 
     va_start(ap, format);
     charsNo = vprintf(format, ap);

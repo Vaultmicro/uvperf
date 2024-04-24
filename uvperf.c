@@ -45,6 +45,7 @@
 #include <wtypes.h>
 
 #include "include/libusbk.h"
+#include "include/log.h"
 #include "include/lusbk_linked_list.h"
 #include "include/lusbk_shared.h"
 
@@ -58,22 +59,22 @@ BOOL verbose = FALSE;
             printf(format, ##__VA_ARGS__);                                                         \
     } while (0)
 
-#define LOGVDAT(format, ...) printf("[data-mismatch] " format, ##__VA_ARGS__)
+// #define LOGVDAT(format, ...) printf("[data-mismatch] " format, ##__VA_ARGS__)
 
-#define LOG(LogTypeString, format, ...)                                                            \
-    printf("%s[%s] " format, LogTypeString, __FUNCTION__, __VA_ARGS__)
-#define LOG_NO_FN(LogTypeString, format, ...)                                                      \
-    printf("%s" format "%s", LogTypeString, ##__VA_ARGS__, "")
+// #define LOG(LogTypeString, format, ...)                                                            \
+//     printf("%s[%s] " format, LogTypeString, __FUNCTION__, __VA_ARGS__)
+// #define LOG_NO_FN(LogTypeString, format, ...)                                                      \
+//     printf("%s" format "%s", LogTypeString, ##__VA_ARGS__, "")
 
-#define LOG_ERROR(format, ...) LOG("ERROR: ", format, ##__VA_ARGS__)
-#define LOG_WARNING(format, ...) LOG("WARNING: ", format, ##__VA_ARGS__)
-#define LOG_MSG(format, ...) LOG_NO_FN("", format, ##__VA_ARGS__)
-#define LOG_DEBUG(format, ...) LOG_NO_FN("", format, ##__VA_ARGS__)
+// #define LOG_ERROR(format, ...) LOG("ERROR: ", format, ##__VA_ARGS__)
+// #define LOG_WARNING(format, ...) LOG("WARNING: ", format, ##__VA_ARGS__)
+// #define LOG_MSG(format, ...) LOG_NO_FN("", format, ##__VA_ARGS__)
+// #define LOG_DEBUG(format, ...) LOG_NO_FN("", format, ##__VA_ARGS__)
 
-#define LOGERR0(message) LOG_ERROR("%s\n", message)
-#define LOGWAR0(message) LOG_WARNING("%s\n", message)
-#define LOGMSG0(message) LOG_MSG("%s\n", message)
-#define LOGDBG0(message) LOG_DEBUG("%s\n", message)
+// #define LOGERR0(message) LOG_ERROR("%s\n", message)
+// #define LOGWAR0(message) LOG_WARNING("%s\n", message)
+// #define LOGMSG0(message) LOG_MSG("%s\n", message)
+// #define LOGDBG0(message) LOG_DEBUG("%s\n", message)
 
 #define VerifyListLock(mTest)                                                                      \
     while (InterlockedExchange(&((mTest)->verifyLock), 1) != 0)                                    \
@@ -124,6 +125,7 @@ typedef struct _UVPERF_PARAM {
     int intf;
     int altf;
     int endpoint;
+    int Timer;
     int timeout;
     int refresh;
     int retry;
@@ -280,6 +282,34 @@ void FileIOClose(PUVPERF_PARAM TestParms);
 #define ENDPOINT_TYPE(TransferParam) (TransferParam->Ep.PipeType & 3)
 const char *TestDisplayString[] = {"None", "Read", "Write", "Loop", NULL};
 const char *EndpointTypeDisplayString[] = {"Control", "Isochronous", "Bulk", "Interrupt", NULL};
+
+char *GetWinErrorMessage(DWORD errorCode) {
+    char *buffer = NULL;
+
+    errorCode = errorCode ? errorCode : GetLastError();
+    if (!errorCode)
+        return NULL;
+
+    if (errorCode == ERROR_GEN_FAILURE || errorCode == ERROR_DEVICE_NOT_CONNECTED) {
+        fprintf(stderr, "Device disconnected.\n");
+    }
+
+    DWORD flags =
+        FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_IGNORE_INSERTS;
+    if (FormatMessageA(flags, NULL, errorCode, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                       (LPSTR)&buffer, 0, NULL) == 0) {
+        fprintf(stderr, "Failed to retrieve the error message for code %lu\n", errorCode);
+        return NULL;
+    }
+
+    return buffer;
+}
+
+void FreeWinErrorMessage(char *message) {
+    if (message) {
+        LocalFree(message);
+    }
+}
 
 LONG WinError(__in_opt DWORD errorCode) {
     LPSTR buffer = NULL;
@@ -762,14 +792,17 @@ Done:
 void VerifyLoopData() { return; }
 
 void ShowUsage() {
-    LOG_MSG("Usage: uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE "
-            "-tTIMEOUT -fFileIO -bBUFFERCOUNT-lREADLENGTH -wWRITELENGTH -rREPEAT -S -R|-W|-L\n");
+    LOG_MSG("Version : V0.2.0\n\n");
+    LOG_MSG("Usage: uvperf -v VID -p PID -i INTERFACE -a AltInterface -e ENDPOINT -m TRANSFERMODE "
+            "-T TIMER -t TIMEOUT -f FileIO -b BUFFERCOUNT-l READLENGTH -w WRITELENGTH -r REPEAT -S "
+            "-R|-W|-L\n");
     LOG_MSG("\t-v VID           USB Vendor ID\n");
     LOG_MSG("\t-p PID           USB Product ID\n");
     LOG_MSG("\t-i INTERFACE     USB Interface\n");
     LOG_MSG("\t-a AltInterface  USB Alternate Interface\n");
     LOG_MSG("\t-e ENDPOINT      USB Endpoint\n");
     LOG_MSG("\t-m TRANSFER      0 = isochronous, 1 = bulk\n");
+    LOG_MSG("\t-T TIMER         Timer in seconds\n");
     LOG_MSG("\t-t TIMEOUT       USB Transfer Timeout\n");
     LOG_MSG("\t-f FileIO        Use file I/O, default : FALSE\n");
     LOG_MSG("\t-b BUFFERCOUNT   Number of buffers to use\n");
@@ -782,7 +815,7 @@ void ShowUsage() {
     LOG_MSG("\t-L               Loop Test\n");
     LOG_MSG("\n");
     LOG_MSG("Example:\n");
-    LOG_MSG("uvperf -v0x1004 -p0xa000 -i0 -a0 -e0x81 -m1 -t1000 -l1024 -r1000 -R\n");
+    LOG_MSG("uvperf -v 0x1004 -p 0xa000 -i 0 -a 0 -e 0x81 -m 0 -t 1000 -l 1024 -r 1000 -R\n");
     LOG_MSG("This will perform 1000 bulk transfers of 1024 bytes to endpoint 0x81\n");
     LOG_MSG("on interface 0, alternate setting 0 of a device with VID 0x1004 and PID 0xA000.\n");
     LOG_MSG("The transfers will have a timeout of 1000ms.\n");
@@ -798,6 +831,7 @@ void SetParamsDefaults(PUVPERF_PARAM TestParms) {
     TestParms->endpoint = 0x00;
     TestParms->TransferMode = TRANSFER_MODE_SYNC;
     TestParms->TestType = TestTypeRead;
+    TestParms->Timer = 0;
     TestParms->timeout = 3000;
     TestParms->fileIO = FALSE;
     TestParms->bufferlength = 1024;
@@ -841,31 +875,42 @@ int GetDeviceInfoFromList(PUVPERF_PARAM TestParms) {
             return -1;
         }
 
-        LOG_MSG("Select device (1-%u) :", count);
-        while (_kbhit()) {
-            _getch();
-        }
+        int validSelection = 0;
 
-        selection = (CHAR)_getche();
-        selection -= (UCHAR)'0';
-        LOGMSG0("\n\n");
-
-        if (selection > 0 && selection <= count) {
-            count = 0;
-            while (LstK_MoveNext(TestParms->DeviceList, &deviceInfo) && ++count != selection) {
-                // disabled
-                LibK_SetContext(deviceInfo, KLIB_HANDLE_TYPE_LSTINFOK, (KLIB_USER_CONTEXT)FALSE);
+        do {
+            LOG_MSG("Select device (1-%u): ", count);
+            while (_kbhit()) {
+                _getch();
             }
 
-            if (!deviceInfo) {
-                LOGERR0("unknown selection\n");
+            selection = (CHAR)_getche() - (UCHAR)'0';
+            fprintf(stderr, "\n");
+            if (selection == 'q' - '0') {
                 return -1;
             }
+            if (selection > 0 && selection <= count) {
+                count = 0;
+                while (LstK_MoveNext(TestParms->DeviceList, &deviceInfo) && ++count != selection) {
+                    // disabled
+                    LibK_SetContext(deviceInfo, KLIB_HANDLE_TYPE_LSTINFOK,
+                                    (KLIB_USER_CONTEXT)FALSE);
+                }
 
-            TestParms->SelectedDeviceProfile = deviceInfo;
+                if (!deviceInfo) {
+                    LOGERR0("Unknown selection\n");
+                    continue;
+                }
 
-            return ERROR_SUCCESS;
-        }
+                TestParms->SelectedDeviceProfile = deviceInfo;
+                validSelection = 1;
+            } else {
+                fprintf(stderr, "Invalid selection. Please select a number between 1 and %u\n",
+                        count);
+                fprintf(stderr, "Press 'q' to quit\n");
+            }
+        } while (!validSelection);
+
+        return ERROR_SUCCESS;
     }
 
     return -1;
@@ -937,6 +982,9 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char **argv) {
         case 'm':
             TestParms->TransferMode =
                 (strtol(optarg, NULL, 0) ? TRANSFER_MODE_ASYNC : TRANSFER_MODE_SYNC);
+            break;
+        case 'T':
+            TestParms->Timer = strtol(optarg, NULL, 0);
             break;
         case 't':
             TestParms->timeout = strtol(optarg, NULL, 0);
@@ -1149,6 +1197,9 @@ DWORD TransferThread(PUVPERF_TRANSFER_PARAM transferParam) {
                           transferParam->RunningErrorCount, transferParam->TestParms->retry + 1,
                           ret);
 
+                char *buffer = GetWinErrorMessage(-ret);
+                LOG_ERROR("error message : %s\n", buffer);
+                FreeWinErrorMessage(buffer);
                 K.ResetPipe(transferParam->TestParms->InterfaceHandle, transferParam->Ep.PipeId);
 
                 if (transferParam->RunningErrorCount > transferParam->TestParms->retry)
@@ -1210,6 +1261,9 @@ Done:
                     !transferParam->TestParms->isUserAborted) {
                     ret = WinError(0);
                     LOG_ERROR("failed cancelling transfer ret = %d\n", ret);
+                    char *buffer = GetWinErrorMessage(-ret);
+                    LOG_ERROR("error message : %s", buffer);
+                    FreeWinErrorMessage(buffer);
                 } else {
                     CloseHandle(transferParam->TransferHandles[i].Overlapped.hEvent);
                     transferParam->TransferHandles[i].Overlapped.hEvent = NULL;
@@ -1535,22 +1589,22 @@ void ShowTransfer(PUVPERF_TRANSFER_PARAM transferParam) {
     if (transferParam->StartTick.tv_nsec) {
         GetAverageBytesSec(transferParam, &BytepsAverage);
         GetCurrentBytesSec(transferParam, &BytepsCurrent);
-        LOG_MSG("\tTotal %I64d  Bytes\n", transferParam->TotalTransferred);
-        LOG_MSG("\tTotal %d  Transfers\n", transferParam->Packets);
+        LOG_MSG("\tTotal %I64d Bytes\n", transferParam->TotalTransferred);
+        LOG_MSG("\tTotal %d Transfers\n", transferParam->Packets);
 
         if (transferParam->shortTrasnferred) {
-            LOG_MSG("\tShort %d  Transfers\n", transferParam->shortTrasnferred);
+            LOG_MSG("\tShort %d Transfers\n", transferParam->shortTrasnferred);
         }
 
         if (transferParam->TotalTimeoutCount) {
-            LOG_MSG("\tTimeout %d  Errors\n", transferParam->TotalTimeoutCount);
+            LOG_MSG("\tTimeout %d Errors\n", transferParam->TotalTimeoutCount);
         }
 
         if (transferParam->TotalErrorCount) {
-            LOG_MSG("\tOther %d  Errors\n", transferParam->TotalErrorCount);
+            LOG_MSG("\tOther %d Errors\n", transferParam->TotalErrorCount);
         }
 
-        LOG_MSG("\tAverage %.2f  Mbps/sec\n", (BytepsAverage * 8) / 1000 / 1000);
+        LOG_MSG("\tAverage %.2f Mbps/sec\n", (BytepsAverage * 8) / 1000 / 1000);
 
         if (transferParam->StartTick.tv_nsec &&
             (transferParam->LastStartTick.tv_sec +
@@ -1559,7 +1613,7 @@ void ShowTransfer(PUVPERF_TRANSFER_PARAM transferParam) {
             elapsedSeconds =
                 (transferParam->LastTick.tv_sec - transferParam->StartTick.tv_sec) +
                 (transferParam->LastTick.tv_nsec - transferParam->StartTick.tv_nsec) / 1000000000.0;
-            LOG_MSG("\tElapsed Time %.2f  seconds\n", elapsedSeconds);
+            LOG_MSG("\tElapsed Time %.2f seconds\n", elapsedSeconds);
         }
 
         LOG_MSG("\n");
@@ -1689,7 +1743,9 @@ int main(int argc, char **argv) {
     LOG_VERBOSE("LibusbK device List Initialize\n");
     if (!LstK_Init(&TestParms.DeviceList, 0)) {
         ec = GetLastError();
-        LOG_ERROR("Failed to initialize device list ec=%08Xh\n", ec);
+        char *buffer = GetWinErrorMessage(ec);
+        LOG_ERROR("Failed to initialize device list ec=%08Xh, message %s: \n", ec, buffer);
+        FreeWinErrorMessage(buffer);
         goto Done;
     }
 
@@ -1703,33 +1759,76 @@ int main(int argc, char **argv) {
     // todo : make a flag for this
     LOG_VERBOSE("GetDeviceInfoFromList\n");
     if (TestParms.intf == -1 || TestParms.altf == -1 || TestParms.endpoint == 0x00) {
-        if (GetDeviceInfoFromList(&TestParms) < 0)
-            goto Done;
-
-        LOG_MSG("select Read or Write or Loop\n");
-        LOG_MSG("R - Read\n");
-        LOG_MSG("W - Write\n");
-        LOG_MSG("L - Loop\n");
-        LOG_MSG("Selection: ");
-
-        key = _getch();
-        switch (key) {
-        case 'R':
-        case 'r':
-            TestParms.TestType = TestTypeRead;
-            break;
-        case 'W':
-        case 'w':
-            TestParms.TestType = TestTypeWrite;
-            break;
-        case 'L':
-        case 'l':
-            TestParms.TestType = TestTypeLoop;
-            break;
-        default:
-            LOGERR0("Invalid selection\n");
+        if (GetDeviceInfoFromList(&TestParms) < 0) {
             goto Done;
         }
+        KLST_DEVINFO_HANDLE deviceInfo;
+        WINUSB_PIPE_INFORMATION_EX pipeInfo[32];
+        UCHAR altSetting = 0;
+        int userChoice;
+        UCHAR pipeIndex;
+
+        int validInput = 0; // Flag to check for valid input
+        do {
+            while (LstK_MoveNext(TestParms.DeviceList, &deviceInfo)) {
+                if (!LibK_LoadDriverAPI(&K, deviceInfo->DriverID)) {
+                    WinError(GetLastError());
+                    printf("Cannot load driver API for %s\n", GetDrvIdString(deviceInfo->DriverID));
+                    continue;
+                }
+
+                if (!K.Init(&TestParms.InterfaceHandle, deviceInfo)) {
+                    WinError(GetLastError());
+                    printf("Cannot initialize device interface for %s\n", deviceInfo->DevicePath);
+                    continue;
+                }
+
+                printf("Device %s initialized successfully.\n", deviceInfo->DevicePath);
+
+                printf("Scanning for pipes...\n");
+                pipeIndex = 0;
+                while (K.QueryPipeEx(TestParms.InterfaceHandle, altSetting, pipeIndex,
+                                     &pipeInfo[pipeIndex])) {
+                    printf("Pipe %d: Type : %11s, %5s, MaxPacketSize=%d\n", pipeIndex + 1,
+                           EndpointTypeDisplayString[pipeInfo[pipeIndex].PipeType],
+                           (pipeInfo[pipeIndex].PipeId & USB_ENDPOINT_DIRECTION_MASK) ? "Read"
+                                                                                      : "Write",
+                           pipeInfo[pipeIndex].MaximumPacketSize);
+                    pipeIndex++;
+                }
+
+                if (pipeIndex == 0) {
+                    printf("No pipes available.\n");
+                    continue;
+                }
+
+                printf("Enter the number of the pipe to use for transfer (1-%d), 'Q' to quit: ",
+                       pipeIndex);
+                int ch = _getche();
+                printf("\n");
+
+                if (ch == 'Q' || ch == 'q') {
+                    printf("Exiting program.\n");
+                    return 0; // 종료
+                }
+
+                userChoice = ch - '0';
+                if (userChoice < 1 || userChoice > pipeIndex) {
+                    printf("Invalid pipe selection.\n");
+                    continue;
+                }
+
+                TestParms.endpoint = (int)(pipeInfo[userChoice - 1].PipeId);
+                TestParms.TestType = (pipeInfo[userChoice - 1].PipeId & USB_ENDPOINT_DIRECTION_MASK)
+                                         ? TestTypeRead
+                                         : TestTypeWrite;
+
+                printf("Selected pipe %d\n", pipeInfo[userChoice - 1].PipeId);
+
+                validInput = 1;
+                break;
+            }
+        } while (!validInput);
     } else {
         LOG_VERBOSE("GetDeviceParam\n");
         if (GetDeviceParam(&TestParms) < 0) {
@@ -1738,8 +1837,9 @@ int main(int argc, char **argv) {
     }
 
     LOG_VERBOSE("Open Bench\n");
-    if (!Bench_Open(&TestParms))
+    if (!Bench_Open(&TestParms)) {
         goto Done;
+    }
 
     if (TestParms.TestType & TestTypeRead) {
         LOG_VERBOSE("CreateTransferParam for ReadTest\n");
@@ -1750,7 +1850,11 @@ int main(int argc, char **argv) {
         if (TestParms.UseRawIO != 0xFF) {
             if (!K.SetPipePolicy(TestParms.InterfaceHandle, ReadTest->Ep.PipeId, RAW_IO, 1,
                                  &TestParms.UseRawIO)) {
-                LOG_ERROR("SetPipePolicy:RAW_IO failed. ErrorCode=%08Xh\n", GetLastError());
+                ec = GetLastError();
+                char *buffer = GetWinErrorMessage(ec);
+                LOG_ERROR("SetPipePolicy:RAW_IO failed. ErrorCode=%08Xh message : %s\n", ec,
+                          buffer);
+                FreeWinErrorMessage(buffer);
                 goto Done;
             }
         }
@@ -1764,15 +1868,22 @@ int main(int argc, char **argv) {
         if (TestParms.fixedIsoPackets) {
             if (!K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId,
                                  ISO_NUM_FIXED_PACKETS, 2, &TestParms.fixedIsoPackets)) {
-                LOG_ERROR("SetPipePolicy:ISO_NUM_FIXED_PACKETS failed. ErrorCode=0x%08X\n",
-                          GetLastError());
+                ec = GetLastError();
+                char *buffer = GetWinErrorMessage(ec);
+                LOG_ERROR("SetPipePolicy:ISO_NUM_FIXED_PACKETS failed. ErrorCode=0x%08X, "
+                          "message : %s\n",
+                          ec, buffer);
+                FreeWinErrorMessage(buffer);
                 goto Done;
             }
         }
         if (TestParms.UseRawIO != 0xFF) {
             if (!K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId, RAW_IO, 1,
                                  &TestParms.UseRawIO)) {
-                LOG_ERROR("SetPipePolicy:RAW_IO failed. ErrorCode=0x%08X\n", GetLastError());
+                ec = GetLastError();
+                char *buffer = GetWinErrorMessage(ec);
+                LOG_ERROR("SetPipePolicy:RAW_IO failed. ErrorCode=0x%08X\n", ec, buffer);
+                FreeWinErrorMessage(buffer);
                 goto Done;
             }
         }
@@ -1795,7 +1906,10 @@ int main(int argc, char **argv) {
         UINT frameNumber;
         LOG_VERBOSE("GetCurrentFrameNumber\n");
         if (!K.GetCurrentFrameNumber(TestParms.InterfaceHandle, &frameNumber)) {
-            LOG_ERROR("GetCurrentFrameNumber Failed. ErrorCode=%u", GetLastError());
+            ec = GetLastError();
+            char *buffer = GetWinErrorMessage(ec);
+            LOG_ERROR("GetCurrentFrameNumber Failed. ErrorCode=%u, message : %s", ec, buffer);
+            FreeWinErrorMessage(buffer);
             goto Done;
         }
         frameNumber += TestParms.bufferCount * 2;
@@ -1815,8 +1929,6 @@ int main(int argc, char **argv) {
         ShowTransfer(ReadTest);
     if (WriteTest)
         ShowTransfer(WriteTest);
-
-    key = _getch();
 
     bIsoAsap = (UCHAR)TestParms.UseIsoAsap;
     if (ReadTest)
@@ -1868,25 +1980,27 @@ int main(int argc, char **argv) {
             }
         }
 
-        // if (ReadTest && ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec >= 300.0) {
-        //     LOG_VERBOSE("Over 60 seconds\n");
-        //     DWORD elapsedSeconds =
-        //         ((ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec) +
-        //          (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 100000000.0);
-        //     LOG_MSG("Elapsed Time %.2f  seconds\n", elapsedSeconds);
-        //     TestParms.isUserAborted = TRUE;
-        //     TestParms.isCancelled = TRUE;
-        // }
+        if (TestParms.Timer && ReadTest &&
+            ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec >= TestParms.Timer) {
+            LOG_VERBOSE("Over 60 seconds\n");
+            DWORD elapsedSeconds =
+                ((ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec) +
+                 (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 100000000.0);
+            LOG_MSG("Elapsed Time %.2f  seconds\n", elapsedSeconds);
+            TestParms.isUserAborted = TRUE;
+            TestParms.isCancelled = TRUE;
+        }
 
-        // if (WriteTest && WriteTest->LastTick.tv_sec - WriteTest->StartTick.tv_sec >= 300.0) {
-        //     LOG_VERBOSE("Over 60 seconds\n");
-        //     DWORD elapsedSeconds =
-        //         ((ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec) +
-        //          (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 100000000.0);
-        //     LOG_MSG("Elapsed Time %.2f  seconds\n", elapsedSeconds);
-        //     TestParms.isUserAborted = TRUE;
-        //     TestParms.isCancelled = TRUE;
-        // }
+        if (TestParms.Timer && WriteTest &&
+            WriteTest->LastTick.tv_sec - WriteTest->StartTick.tv_sec >= TestParms.Timer) {
+            LOG_VERBOSE("Over 60 seconds\n");
+            DWORD elapsedSeconds =
+                ((ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec) +
+                 (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 100000000.0);
+            LOG_MSG("Elapsed Time %.2f  seconds\n", elapsedSeconds);
+            TestParms.isUserAborted = TRUE;
+            TestParms.isCancelled = TRUE;
+        }
 
         if (ReadTest && TestParms.fileIO)
             FileIORead(&TestParms, ReadTest);

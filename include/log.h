@@ -14,13 +14,13 @@ int LogPrint(const int line, const char *func, const char *format, ...);
 #define Log(fmt, ...) LogPrint(__LINE__, __func__, fmt, ##__VA_ARGS__)
 
 // Macros for logging with specific prefixes and the name of the current function
-#define LOG(LogTypeString, format, ...) Log("[%s] : " format "\n", LogTypeString)
-#define LOG_NO_FN(LogTypeString, format, ...) Log("%s: " format "\n", LogTypeString, ##__VA_ARGS__)
+#define LOG(LogTypeString, format, ...) Log("[%s] : " format, LogTypeString)
+#define LOG_NO_FN(LogTypeString, format, ...) Log("%s " format, LogTypeString, ##__VA_ARGS__)
 
 // Specific logging level macros that simplify usage
 #define LOG_ERROR(format, ...) LOG("ERROR", format, ##__VA_ARGS__)
 #define LOG_WARNING(format, ...) LOG("WARNING", format, ##__VA_ARGS__)
-#define LOG_MSG(format, ...) LOG_NO_FN("MSG ", format, ##__VA_ARGS__)
+#define LOG_MSG(format, ...) LOG_NO_FN("",format, ##__VA_ARGS__)
 #define LOG_DEBUG(format, ...) LOG_NO_FN("DEBUG ", format, ##__VA_ARGS__)
 
 // Simple message logging macros without additional formatting
