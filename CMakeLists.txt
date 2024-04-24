@@ -6,6 +6,6 @@ project(
     LANGUAGES C
 )
 
-add_executable(uvperf uvperf.c)
+add_executable(uvperf uvperf.c log.c)
 
 target_link_libraries(uvperf "${CMAKE_SOURCE_DIR}/lib/libusbK.dll")

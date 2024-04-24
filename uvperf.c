@@ -1583,22 +1583,22 @@ void ShowTransfer(PUVPERF_TRANSFER_PARAM transferParam) {
     if (transferParam->StartTick.tv_nsec) {
         GetAverageBytesSec(transferParam, &BytepsAverage);
         GetCurrentBytesSec(transferParam, &BytepsCurrent);
-        LOG_MSG("\tTotal %I64d  Bytes\n", transferParam->TotalTransferred);
-        LOG_MSG("\tTotal %d  Transfers\n", transferParam->Packets);
+        LOG_MSG("\tTotal %I64d Bytes\n", transferParam->TotalTransferred);
+        LOG_MSG("\tTotal %d Transfers\n", transferParam->Packets);
 
         if (transferParam->shortTrasnferred) {
-            LOG_MSG("\tShort %d  Transfers\n", transferParam->shortTrasnferred);
+            LOG_MSG("\tShort %d Transfers\n", transferParam->shortTrasnferred);
         }
 
         if (transferParam->TotalTimeoutCount) {
-            LOG_MSG("\tTimeout %d  Errors\n", transferParam->TotalTimeoutCount);
+            LOG_MSG("\tTimeout %d Errors\n", transferParam->TotalTimeoutCount);
         }
 
         if (transferParam->TotalErrorCount) {
-            LOG_MSG("\tOther %d  Errors\n", transferParam->TotalErrorCount);
+            LOG_MSG("\tOther %d Errors\n", transferParam->TotalErrorCount);
         }
 
-        LOG_MSG("\tAverage %.2f  Mbps/sec\n", (BytepsAverage * 8) / 1000 / 1000);
+        LOG_MSG("\tAverage %.2f Mbps/sec\n", (BytepsAverage * 8) / 1000 / 1000);
 
         if (transferParam->StartTick.tv_nsec &&
             (transferParam->LastStartTick.tv_sec +
@@ -1607,7 +1607,7 @@ void ShowTransfer(PUVPERF_TRANSFER_PARAM transferParam) {
             elapsedSeconds =
                 (transferParam->LastTick.tv_sec - transferParam->StartTick.tv_sec) +
                 (transferParam->LastTick.tv_nsec - transferParam->StartTick.tv_nsec) / 1000000000.0;
-            LOG_MSG("\tElapsed Time %.2f  seconds\n", elapsedSeconds);
+            LOG_MSG("\tElapsed Time %.2f seconds\n", elapsedSeconds);
         }
 
         LOG_MSG("\n");
