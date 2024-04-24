@@ -12,30 +12,37 @@
 
 ## UVTest 사용법
 
-uvperf -vVID -pPID -iINTERFACE -aAltInterface -eENDPOINT -mTRANSFERMODE -tTIMEOUT -lREADLENGTH -wWRITELENGTH -rREPEAT -S1 -R|-W|-L
-*   -vVID<br/>           USB Vendor ID
-*   -pPID<br/>           USB Product ID
-*   -iINTERFACE<br>      USB Interface
-*   -aAltInterface<br>   USB Alternate Interface
-*   -eENDPOINT<br>       USB Endpoint
-*   -mTRANSFERMODE<br>   0 = isochronous, 1 = bulk
-*   -tTIMEOUT<br>        USB Transfer Timeout
-*   -lREADLENGTH<br>     Length of read transfers
-*   -wWRITELENGTH<br>    Length of write transfers
-*   -rREPEAT<br>         Number of transfers to perform
-*   -S 0|1<br>           1 = Show transfer data, defulat = 0\n
-*   -R <br>              :ead Test
-*   -W <br>              Write Test
-*   -L <br>              Loop Test
+### CLI
 
-### Example:
+uvperf -v VID -p PID -i INTERFACE -a AltInterface -e ENDPOINT -m TRANSFERMODE 
+            -T TIMER -t TIMEOUT -f FileIO -b BUFFERCOUNT-l READLENGTH -w WRITELENGTH -r REPEAT -S
+            Example
 
-    ./uvperf.exe -v0x1004 -p0x61a1 -i0 -a0 -e0x81 -m1 -t1000 -l1024 -r1000 -R
+*   -v VID<br/>           USB Vendor ID
+*   -p PID<br/>           USB Product ID
+*   -i INTERFACE<br>      USB Interface
+*   -a AltInterface<br>   USB Alternate Interface
+*   -e ENDPOINT<br>       USB Endpoint
+*   -m TRANSFERMODE<br>   0 = Async, 1 = Sync
+*   -T TIMER<br>          Timer in seconds
+*   -t TIMEOUT<br>        USB Transfer Timeout
+*   -f FileIO<br>         Use file I/O, default : FALSE
+*   -l READLENGTH<br>     Length of read transfers
+*   -w WRITELENGTH<br>    Length of write transfers
+*   -r REPEAT<br>         Number of transfers to perform
+*   -S <br>               Show transfer data, default : FALSE
+```
+uvperf -v 0x1004 -p 0xa000 -i 0 -a 0 -e 0x81 -m 0 -t 1000 -l 1024 -r 1000 -R
+```
+This will perform 1000 bulk transfers of 1024 bytes to endpoint 0x81 on interface 0, alternate setting 0 of a device with VID 0x1004 and PID 0xA000 The transfers will have a timeout of 1000ms.
 
-This will perform 1000 bulk transfers of 1024 bytes to endpoint 0x81
-on interface 0, alternate setting 0 of a device with VID 0x1004 and PID 0xA000.
-The transfers will have a timeout of 1000ms.
+### List
+```
+uvperf
+```
+then, you can select device and endpoint
+( recommend type with buffer size and timeout with commands )
 
 ### Bandwitdh
 
-In the middle of excution, press "q" or "Q" then, show the log average Bandwidth ( Byte/sec, Mpbs ), total transfer
+In the middle of excution, press "q" or "Q" then, show the log average Bandwidth ( Mpbs ), total transfer
