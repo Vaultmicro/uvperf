@@ -1551,9 +1551,7 @@ void ShowTransfer(PUVPERF_TRANSFER_PARAM transferParam) {
                     transferParam->Ep.MaximumBytesPerInterval,
                     transferParam->EpCompanionDescriptor.bMaxBurst + 1,
                     transferParam->EpCompanionDescriptor.bmAttributes.Isochronous.Mult + 1);
-            }
-
-            else if (transferParam->Ep.PipeType == UsbdPipeTypeBulk) {
+            } else if (transferParam->Ep.PipeType == UsbdPipeTypeBulk) {
                 LOG_MSG("%s %s from Ep0x%02X Maximum Bytes Per Interval:%lu Max Bursts:%u Max "
                         "Streams:%u\n",
                         EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
@@ -1561,25 +1559,19 @@ void ShowTransfer(PUVPERF_TRANSFER_PARAM transferParam) {
                         transferParam->Ep.MaximumBytesPerInterval,
                         transferParam->EpCompanionDescriptor.bMaxBurst + 1,
                         transferParam->EpCompanionDescriptor.bmAttributes.Bulk.MaxStreams + 1);
-            }
-
-            else {
+            } else {
                 LOG_MSG("%s %s from Ep0x%02X Maximum Bytes Per Interval:%lu\n",
                         EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
                         TRANSFER_DISPLAY(transferParam, "Read", "Write"), transferParam->Ep.PipeId,
                         transferParam->Ep.MaximumBytesPerInterval);
             }
-        }
-
-        else {
+        } else {
             LOG_MSG("%s %s Ep0x%02X Maximum Packet Size:%d\n",
                     EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
                     TRANSFER_DISPLAY(transferParam, "Read", "Write"), transferParam->Ep.PipeId,
                     transferParam->Ep.MaximumPacketSize);
         }
-    }
-
-    else {
+    } else {
         LOG_MSG("%s %s Ep0x%02X Maximum Packet Size: %d\n",
                 EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
                 TRANSFER_DISPLAY(transferParam, "Read", "Write"), transferParam->Ep.PipeId,
