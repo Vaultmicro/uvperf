@@ -5,9 +5,10 @@
  *   The utility will perform a series of transfers to the specified endpoint
  *   and report the results.
  *
+ *   Version : V1.0.0
  *   Usage:
  *   uvperf -V VERBOSE-v VID -p PID -i INTERFACE -a AltInterface -e ENDPOINT -m TRANSFERMODE
- * -t TIMEOUT -b BUFFERCOUNT -l READLENGTH -w WRITELENGTH -r REPEAT -S -R|W|L
+ * -t TIMEOUT -b BUFFERCOUNT -l READLENGTH -w WRITELENGTH -r REPEAT -S
  *
  *   -VVERBOSE       Enable verbose output
  *   -vVID           USB Vendor ID
@@ -22,12 +23,9 @@
  *   -wWRITELENGTH   Length of write transfers
  *   -rREPEAT        Number of transfers to perform
  *   -S              1 = Show transfer data, defulat = 0\n
- *   -R              Read Test
- *   -W              Write Test
- *   -L              Loop Test
  *
  *   Example:
- *   uvperf -v0x1004 -p0xa000 -i0 -a0 -e0x81 -m1 -t1000 -l1024 -r1000 -R
+ *   uvperf -v0x1004 -p0xa000 -i0 -a0 -e0x81 -m1 -t1000 -l1024 -r1000
  *
  *   This will perform 1000 bulk transfers of 1024 bytes to endpoint 0x81
  *   on interface 0, alternate setting 0 of a device with VID 0x1004 and PID 0xA000.
@@ -738,7 +736,6 @@ int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam, PUVPERF_TRANSFER_HANDLE 
                                    &transferred, FALSE)) {
             if (!transferParam->TestParms->isUserAborted) {
                 ret = WinError(0);
-                LOGMSG0("여기!!!\n");
             } else
                 ret = -labs(GetLastError());
 
@@ -792,10 +789,10 @@ Done:
 void VerifyLoopData() { return; }
 
 void ShowUsage() {
-    LOG_MSG("Version : V1.0.0\n\n");
+    LOG_MSG("Version : V1.0.0\n");
+    LOG_MSG("\n");
     LOG_MSG("Usage: uvperf -v VID -p PID -i INTERFACE -a AltInterface -e ENDPOINT -m TRANSFERMODE "
-            "-T TIMER -t TIMEOUT -f FileIO -b BUFFERCOUNT-l READLENGTH -w WRITELENGTH -r REPEAT -S "
-            "-R|-W|-L\n");
+            "-T TIMER -t TIMEOUT -f FileIO -b BUFFERCOUNT-l READLENGTH -w WRITELENGTH -r REPEAT -S \n");
     LOG_MSG("\t-v VID           USB Vendor ID\n");
     LOG_MSG("\t-p PID           USB Product ID\n");
     LOG_MSG("\t-i INTERFACE     USB Interface\n");
@@ -810,9 +807,6 @@ void ShowUsage() {
     LOG_MSG("\t-w WRITELENGTH   Length of write transfers\n");
     LOG_MSG("\t-r REPEAT        Number of transfers to perform\n");
     LOG_MSG("\t-S               Show transfer data, default : FALSE\n");
-    LOG_MSG("\t-R               Read Test\n");
-    LOG_MSG("\t-W               Write Test\n");
-    LOG_MSG("\t-L               Loop Test\n");
     LOG_MSG("\n");
     LOG_MSG("Example:\n");
     LOG_MSG("uvperf -v 0x1004 -p 0xa000 -i 0 -a 0 -e 0x81 -m 0 -t 1000 -l 1024 -r 1000 -R\n");
@@ -1733,10 +1727,6 @@ int main(int argc, char **argv) {
     LOG_VERBOSE("SetParamsDefaults\n");
     SetParamsDefaults(&TestParms);
 
-    LOG_VERBOSE("ParseArgs\n");
-    if (ParseArgs(&TestParms, argc, argv) < 0)
-        return -1;
-
     LOG_VERBOSE("InitializeCriticalSection\n");
     InitializeCriticalSection(&DisplayCriticalSection);
 
@@ -1773,23 +1763,23 @@ int main(int argc, char **argv) {
             while (LstK_MoveNext(TestParms.DeviceList, &deviceInfo)) {
                 if (!LibK_LoadDriverAPI(&K, deviceInfo->DriverID)) {
                     WinError(GetLastError());
-                    printf("Cannot load driver API for %s\n", GetDrvIdString(deviceInfo->DriverID));
+                    LOG_ERROR("Cannot load driver API for %s\n", GetDrvIdString(deviceInfo->DriverID));
                     continue;
                 }
 
                 if (!K.Init(&TestParms.InterfaceHandle, deviceInfo)) {
                     WinError(GetLastError());
-                    printf("Cannot initialize device interface for %s\n", deviceInfo->DevicePath);
+                    LOG_ERROR("Cannot initialize device interface for %s\n", deviceInfo->DevicePath);
                     continue;
                 }
 
-                printf("Device %s initialized successfully.\n", deviceInfo->DevicePath);
+                LOG_MSG("Device %s initialized successfully.\n", deviceInfo->DevicePath);
 
-                printf("Scanning for pipes...\n");
+                LOG_MSG("Scanning for pipes...\n");
                 pipeIndex = 0;
                 while (K.QueryPipeEx(TestParms.InterfaceHandle, altSetting, pipeIndex,
                                      &pipeInfo[pipeIndex])) {
-                    printf("Pipe %d: Type : %11s, %5s, MaxPacketSize=%d\n", pipeIndex + 1,
+                    LOG_MSG("Pipe %d: Type : %11s, %5s, MaxPacketSize=%d\n", pipeIndex + 1,
                            EndpointTypeDisplayString[pipeInfo[pipeIndex].PipeType],
                            (pipeInfo[pipeIndex].PipeId & USB_ENDPOINT_DIRECTION_MASK) ? "Read"
                                                                                       : "Write",
@@ -1798,23 +1788,23 @@ int main(int argc, char **argv) {
                 }
 
                 if (pipeIndex == 0) {
-                    printf("No pipes available.\n");
+                    LOG_ERROR("No pipes available.\n");
                     continue;
                 }
 
-                printf("Enter the number of the pipe to use for transfer (1-%d), 'Q' to quit: ",
+                LOG_MSG("Enter the number of the pipe to use for transfer (1-%d), 'Q' to quit: ",
                        pipeIndex);
                 int ch = _getche();
-                printf("\n");
+                fprintf(stderr, "\n");
 
                 if (ch == 'Q' || ch == 'q') {
-                    printf("Exiting program.\n");
+                    LOG_MSG("Exiting program.\n");
                     return 0; // 종료
                 }
 
                 userChoice = ch - '0';
                 if (userChoice < 1 || userChoice > pipeIndex) {
-                    printf("Invalid pipe selection.\n");
+                    LOG_ERROR("Invalid pipe selection.\n");
                     continue;
                 }
 
@@ -1823,7 +1813,7 @@ int main(int argc, char **argv) {
                                          ? TestTypeRead
                                          : TestTypeWrite;
 
-                printf("Selected pipe %d\n", pipeInfo[userChoice - 1].PipeId);
+                LOG_MSG("Selected pipe %d\n", pipeInfo[userChoice - 1].PipeId);
 
                 validInput = 1;
                 break;
@@ -1840,6 +1830,10 @@ int main(int argc, char **argv) {
     if (!Bench_Open(&TestParms)) {
         goto Done;
     }
+
+    LOG_VERBOSE("ParseArgs\n");
+    if (ParseArgs(&TestParms, argc, argv) < 0)
+        return -1;
 
     if (TestParms.TestType & TestTypeRead) {
         LOG_VERBOSE("CreateTransferParam for ReadTest\n");
