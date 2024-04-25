@@ -1,11 +1,8 @@
 # 실행방법
 ## uvperf.c
-1. include "libusb.h"
-2. gcc로 컴파일 할 경우 링크 경로 지정 -> -L"{libusbk.dll 경로}" -l"usb"
-3. CMake
-    1. mkdir build
-    2. build dir에서 cmake ..
-4. Visual Studio로 컴파일 할 경우 ->  #pragma comment(lib, "libusbk.lib") 추가
+1. gcc로 컴파일 할 경우 링크 경로 지정 -> -L"{libusbk.dll 경로}" -l"usb"
+2. CMake
+3. Visual Studio로 컴파일 할 경우 ->  #pragma comment(lib, "libusbk.lib") 추가
 ## uvperf_bulk_libusb.c
 1. include "libusb.h"
 2. gcc로 컴파일 할 경우 링크 경로 지정 -> -L"{libusb.dll 경로}" -l"usb-1.0"
@@ -38,7 +35,7 @@ This will perform 1000 bulk transfers of 1024 bytes to endpoint 0x81 on interfac
 
 ### List
 ```
-uvperf
+uvperf -l | -w Buffersize
 ```
 then, you can select device and endpoint
 ( recommend type with buffer size and timeout with commands )
