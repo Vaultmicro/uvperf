@@ -717,7 +717,6 @@ int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam, PUVPERF_TRANSFER_HANDLE 
                                    &transferred, FALSE)) {
             if (!transferParam->TestParms->isUserAborted) {
                 ret = WinError(0);
-                LOGMSG0("여기!!!\n");
             } else
                 ret = -labs(GetLastError());
 
@@ -771,7 +770,7 @@ Done:
 void VerifyLoopData() { return; }
 
 void ShowUsage() {
-    LOG_MSG("Version : V1.0.1\n");
+    LOG_MSG("Version : V1.0.2\n");
     LOG_MSG("\n");
     LOG_MSG("Usage: uvperf -v VID -p PID -i INTERFACE -a AltInterface -e ENDPOINT -m TRANSFERMODE "
             "-T TIMER -t TIMEOUT -f FileIO -b BUFFERCOUNT-l READLENGTH -w WRITELENGTH -r REPEAT -S "
@@ -1114,7 +1113,7 @@ void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM 
                 LOG_MSG("Average %.2f Mbps\n",
                         (bpsReadOverall + bpsWriteOverall) * 8 / 1000 / 1000);
                 LOG_MSG("Total %d Transfers\n", totalPackets);
-                LOG_MSG("\n\n");
+                LOG_MSG("\n");
             }
         }
     }
@@ -1380,16 +1379,16 @@ PUVPERF_TRANSFER_PARAM CreateTransferParam(PUVPERF_PARAM TestParam, int endpoint
             numIsoPackets =
                 transferParam->TestParms->bufferlength / transferParam->Ep.MaximumBytesPerInterval;
             transferParam->numberOFIsoPackets = numIsoPackets;
-            if (numIsoPackets == 0 || ((numIsoPackets % 8)) ||
-                transferParam->TestParms->bufferlength %
-                    transferParam->Ep.MaximumBytesPerInterval) {
-                const UINT minBufferSize = transferParam->Ep.MaximumBytesPerInterval * 8;
-                LOG_ERROR("Buffer size is not correct for isochronous pipe 0x%02X\n",
-                          transferParam->Ep.PipeId);
-                LOG_ERROR("- Buffer size must be an interval of %u\n", minBufferSize);
-                FreeTransferParam(&transferParam);
-                goto Done;
-            }
+            // if (numIsoPackets == 0 || ((numIsoPackets % 8)) ||
+            //     transferParam->TestParms->bufferlength %
+            //         transferParam->Ep.MaximumBytesPerInterval) {
+            //     const UINT minBufferSize = transferParam->Ep.MaximumBytesPerInterval * 8;
+            //     LOG_ERROR("Buffer size is not correct for isochronous pipe 0x%02X\n",
+            //               transferParam->Ep.PipeId);
+            //     LOG_ERROR("- Buffer size must be an interval of %u\n", minBufferSize);
+            //     FreeTransferParam(&transferParam);
+            //     goto Done;
+            // }
 
             for (bufferIndex = 0; bufferIndex < transferParam->TestParms->bufferCount;
                  bufferIndex++) {

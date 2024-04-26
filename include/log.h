@@ -18,7 +18,7 @@ int LogPrint(const int line, const char *func, const char *format, ...);
 #define LOG_NO_FN(LogTypeString, format, ...) Log("%s " format, LogTypeString, ##__VA_ARGS__)
 
 // Specific logging level macros that simplify usage
-#define LOG_ERROR(format, ...) LOG("ERROR", format, ##__VA_ARGS__)
+#define LOG_ERROR(format, ...) LOG_NO_FN("ERROR", format, ##__VA_ARGS__)
 #define LOG_WARNING(format, ...) LOG("WARNING", format, ##__VA_ARGS__)
 #define LOG_MSG(format, ...) LOG_NO_FN("",format, ##__VA_ARGS__)
 #define LOG_DEBUG(format, ...) LOG_NO_FN("DEBUG ", format, ##__VA_ARGS__)
