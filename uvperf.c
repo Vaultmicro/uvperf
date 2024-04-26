@@ -57,23 +57,6 @@ BOOL verbose = FALSE;
             printf(format, ##__VA_ARGS__);                                                         \
     } while (0)
 
-// #define LOGVDAT(format, ...) printf("[data-mismatch] " format, ##__VA_ARGS__)
-
-// #define LOG(LogTypeString, format, ...)                                                            \
-//     printf("%s[%s] " format, LogTypeString, __FUNCTION__, __VA_ARGS__)
-// #define LOG_NO_FN(LogTypeString, format, ...)                                                      \
-//     printf("%s" format "%s", LogTypeString, ##__VA_ARGS__, "")
-
-// #define LOG_ERROR(format, ...) LOG("ERROR: ", format, ##__VA_ARGS__)
-// #define LOG_WARNING(format, ...) LOG("WARNING: ", format, ##__VA_ARGS__)
-// #define LOG_MSG(format, ...) LOG_NO_FN("", format, ##__VA_ARGS__)
-// #define LOG_DEBUG(format, ...) LOG_NO_FN("", format, ##__VA_ARGS__)
-
-// #define LOGERR0(message) LOG_ERROR("%s\n", message)
-// #define LOGWAR0(message) LOG_WARNING("%s\n", message)
-// #define LOGMSG0(message) LOG_MSG("%s\n", message)
-// #define LOGDBG0(message) LOG_DEBUG("%s\n", message)
-
 #define VerifyListLock(mTest)                                                                      \
     while (InterlockedExchange(&((mTest)->verifyLock), 1) != 0)                                    \
     Sleep(0)
@@ -314,7 +297,7 @@ LONG WinError(__in_opt DWORD errorCode) {
 
     if (FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_ALLOCATE_BUFFER, NULL, errorCode,
                        0, (LPSTR)&buffer, 0, NULL) > 0) {
-        LOG_ERROR("%s\n", buffer);
+        // LOG_ERROR("%s\n", buffer);
         SetLastError(0);
     } else {
         LOGERR0("FormatMessage error!\n");
@@ -785,7 +768,7 @@ Done:
 void VerifyLoopData() { return; }
 
 void ShowUsage() {
-    LOG_MSG("Version : V1.0.1\n");
+    LOG_MSG("Version : V1.0.2\n");
     LOG_MSG("\n");
     LOG_MSG("Usage: uvperf -v VID -p PID -i INTERFACE -a AltInterface -e ENDPOINT -m TRANSFERMODE "
             "-T TIMER -t TIMEOUT -f FileIO -b BUFFERCOUNT-l READLENGTH -w WRITELENGTH -r REPEAT -S \n");
@@ -1124,7 +1107,7 @@ void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM 
                 LOG_MSG("Average %.2f Mbps\n",
                         (bpsReadOverall + bpsWriteOverall) * 8 / 1000 / 1000);
                 LOG_MSG("Total %d Transfers\n", totalPackets);
-                LOG_MSG("\n\n");
+                LOG_MSG("\n");
             }
         }
     }
@@ -1390,16 +1373,16 @@ PUVPERF_TRANSFER_PARAM CreateTransferParam(PUVPERF_PARAM TestParam, int endpoint
             numIsoPackets =
                 transferParam->TestParms->bufferlength / transferParam->Ep.MaximumBytesPerInterval;
             transferParam->numberOFIsoPackets = numIsoPackets;
-            if (numIsoPackets == 0 || ((numIsoPackets % 8)) ||
-                transferParam->TestParms->bufferlength %
-                    transferParam->Ep.MaximumBytesPerInterval) {
-                const UINT minBufferSize = transferParam->Ep.MaximumBytesPerInterval * 8;
-                LOG_ERROR("Buffer size is not correct for isochronous pipe %02X\n",
-                          transferParam->Ep.PipeId);
-                LOG_ERROR("- Buffer size must be an interval of %u\n", minBufferSize);
-                FreeTransferParam(&transferParam);
-                goto Done;
-            }
+            // if (numIsoPackets == 0 || ((numIsoPackets % 8)) ||
+            //     transferParam->TestParms->bufferlength %
+            //         transferParam->Ep.MaximumBytesPerInterval) {
+            //     const UINT minBufferSize = transferParam->Ep.MaximumBytesPerInterval * 8;
+            //     LOG_ERROR("Buffer size is not correct for isochronous pipe 0x%02X\n",
+            //               transferParam->Ep.PipeId);
+            //     LOG_ERROR("- Buffer size must be an interval of %u\n", minBufferSize);
+            //     FreeTransferParam(&transferParam);
+            //     goto Done;
+            // }
 
             for (bufferIndex = 0; bufferIndex < transferParam->TestParms->bufferCount;
                  bufferIndex++) {
