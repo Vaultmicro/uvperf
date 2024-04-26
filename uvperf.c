@@ -166,14 +166,10 @@ typedef struct _UVPERF_PARAM {
     BOOL listDevicesOnly;
     unsigned long deviceSpeed;
 
-    BOOL ReadLogEnabled;
-    FILE *ReadLogFile;
-    BOOL WriteLogEnabled;
-    FILE *WriteLogFile;
-    FILE *ReadFile;
-    FILE *WriteFile;
-    char ReadFileName[MAX_PATH];
-    char WriteFileName[MAX_PATH];
+    FILE *BufferFile;
+    FILE *LogFile;
+    char BufferFileName[MAX_PATH];
+    char LogFileName[MAX_PATH];
 
     UCHAR UseRawIO;
     UCHAR DefaultAltSetting;
@@ -268,8 +264,8 @@ DWORD TransferThread(PUVPERF_TRANSFER_PARAM transferParam);
 void FreeTransferParam(PUVPERF_TRANSFER_PARAM *transferParamRef);
 
 void FileIOOpen(PUVPERF_PARAM TestParms);
-void FileIORead(PUVPERF_PARAM TestParms, PUVPERF_TRANSFER_PARAM transferParam);
-void FileIOWrite(PUVPERF_PARAM TestParms, PUVPERF_TRANSFER_PARAM transferParam);
+void FileIOBuffer(PUVPERF_PARAM TestParms, PUVPERF_TRANSFER_PARAM transferParam);
+void FileIOLog(PUVPERF_PARAM TestParms);
 void FileIOClose(PUVPERF_PARAM TestParms);
 
 #define TRANSFER_DISPLAY(TransferParam, ReadingString, WritingString)                              \
@@ -792,7 +788,8 @@ Done:
 void VerifyLoopData() { return; }
 
 void ShowUsage() {
-    LOG_MSG("Version : V0.2.0\n\n");
+    LOG_MSG("Version : V1.0.1\n");
+    LOG_MSG("\n");
     LOG_MSG("Usage: uvperf -v VID -p PID -i INTERFACE -a AltInterface -e ENDPOINT -m TRANSFERMODE "
             "-T TIMER -t TIMEOUT -f FileIO -b BUFFERCOUNT-l READLENGTH -w WRITELENGTH -r REPEAT -S "
             "-R|-W|-L\n");
@@ -959,7 +956,7 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char **argv) {
     int status = 0;
 
     int c;
-    while ((c = getopt(argc, argv, "Vv:p:i:a:e:m:t:f:b:l:w:r:SRWL")) != -1) {
+    while ((c = getopt(argc, argv, "Vv:p:i:a:e:m:t:fb:l:w:r:SRWL")) != -1) {
         switch (c) {
         case 'V':
             verbose = TRUE;
@@ -1639,70 +1636,75 @@ BOOL WaitForTestTransfer(PUVPERF_TRANSFER_PARAM transferParam, UINT msToWait) {
 }
 
 void FileIOOpen(PUVPERF_PARAM TestParms) {
-    strncpy(TestParms->ReadFileName, "uvperf_read.dat", MAX_PATH - 1);
-    TestParms->ReadFileName[MAX_PATH - 1] = '\0';
-    strncpy(TestParms->WriteFileName, "uvperf_write.dat", MAX_PATH - 1);
-    TestParms->WriteFileName[MAX_PATH - 1] = '\0';
+    
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+
+    strftime(TestParms->BufferFileName, MAX_PATH - 1, "uvperf_buffer_%Y%m%d_%H%M%S.dat",
+             t);
+    TestParms->BufferFileName[MAX_PATH - 1] = '\0';
+    strftime(TestParms->LogFileName, MAX_PATH - 1, "uvperf_log_%Y%m%d_%H%M%S.txt",
+             t);
+    TestParms->LogFileName[MAX_PATH - 1] = '\0';
 
     if (TestParms->fileIO) {
-        if (TestParms->TestType & TestTypeRead) {
-            TestParms->ReadFile =
-                CreateFile(TestParms->ReadFileName, GENERIC_READ, FILE_SHARE_READ, NULL,
-                           OPEN_ALWAYS, // Open the file if it exists; otherwise, create it
-                           FILE_ATTRIBUTE_NORMAL, NULL);
+        TestParms->BufferFile =
+            CreateFile(TestParms->BufferFileName, GENERIC_READ | GENERIC_WRITE,
+                       FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                       OPEN_ALWAYS, // Open the file if it exists; otherwise, create it
+                       FILE_ATTRIBUTE_NORMAL, NULL);
 
-            if (TestParms->ReadFile == INVALID_HANDLE_VALUE) {
-                LOG_ERROR("failed creating %s\n", TestParms->ReadFileName);
-                TestParms->fileIO = FALSE;
-            }
+        if (TestParms->BufferFile == INVALID_HANDLE_VALUE) {
+            LOG_ERROR("failed creating %s\n", TestParms->BufferFileName);
+            TestParms->fileIO = FALSE;
         }
 
-        if (TestParms->TestType & TestTypeWrite) {
-            TestParms->WriteFile =
-                CreateFile(TestParms->WriteFileName, GENERIC_READ | GENERIC_WRITE,
-                           FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
-                           OPEN_ALWAYS, // Open the file if it exists; otherwise, create it
-                           FILE_ATTRIBUTE_NORMAL, NULL);
+        TestParms->LogFile =
+            CreateFile(TestParms->LogFileName, GENERIC_READ | GENERIC_WRITE,
+                       FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                       OPEN_ALWAYS, // Open the file if it exists; otherwise, create it
+                       FILE_ATTRIBUTE_NORMAL, NULL);
 
-            if (TestParms->WriteFile == INVALID_HANDLE_VALUE) {
-                LOG_ERROR("failed opening %s\n", TestParms->WriteFileName);
-                TestParms->fileIO = FALSE;
-            }
+        if (TestParms->LogFile == INVALID_HANDLE_VALUE) {
+            LOG_ERROR("failed opening %s\n", TestParms->LogFileName);
+            TestParms->fileIO = FALSE;
         }
     }
 }
 
-void FileIORead(PUVPERF_PARAM TestParms, PUVPERF_TRANSFER_PARAM transferParam) {
-    DWORD bytesRead;
-    if (TestParms->fileIO && TestParms->ReadFile != INVALID_HANDLE_VALUE) {
-        if (!ReadFile(TestParms->ReadFile, transferParam->Buffer, TestParms->readlenth, &bytesRead,
-                      NULL)) {
-            LOG_ERROR("failed reading %s\n", TestParms->ReadFileName);
-        }
-    }
-}
-
-void FileIOWrite(PUVPERF_PARAM TestParms, PUVPERF_TRANSFER_PARAM transferParam) {
+void FileIOBuffer(PUVPERF_PARAM TestParms, PUVPERF_TRANSFER_PARAM transferParam) {
     DWORD bytesWritten;
-    if (TestParms->fileIO && TestParms->WriteFile != INVALID_HANDLE_VALUE) {
-        if (!WriteFile(TestParms->WriteFile, transferParam->Buffer, TestParms->writelength,
+    if (TestParms->fileIO && TestParms->BufferFile != INVALID_HANDLE_VALUE) {
+        if (!WriteFile(TestParms->BufferFile, transferParam->Buffer, TestParms->bufferlength,
                        &bytesWritten, NULL)) {
             DWORD errorCode = GetLastError(); // Retrieve the error code
-            LOG_ERROR("failed writing %s, Error code: %lu\n", TestParms->WriteFileName, errorCode);
+            LOG_ERROR("failed writing %s, Error code\n", TestParms->BufferFileName, errorCode);
         }
     }
+}
+
+void FileIOLog(PUVPERF_PARAM TestParms) {
+    if (!TestParms->fileIO) {
+        return;
+    }
+
+    freopen(TestParms->LogFileName, "a+", stdout);
+    freopen(TestParms->LogFileName, "a+", stderr);
+
+    ShowParms(TestParms);
 }
 
 void FileIOClose(PUVPERF_PARAM TestParms) {
     if (TestParms->fileIO) {
-        if (TestParms->ReadFile != INVALID_HANDLE_VALUE) {
-            CloseHandle(TestParms->ReadFile);
-            TestParms->ReadFile = INVALID_HANDLE_VALUE;
+        if (TestParms->BufferFile != INVALID_HANDLE_VALUE) {
+            CloseHandle(TestParms->BufferFile);
+            TestParms->BufferFile = INVALID_HANDLE_VALUE;
         }
 
-        if (TestParms->WriteFile != INVALID_HANDLE_VALUE) {
-            CloseHandle(TestParms->WriteFile);
-            TestParms->WriteFile = INVALID_HANDLE_VALUE;
+        if (TestParms->LogFile != INVALID_HANDLE_VALUE) {
+            fclose(stdout);
+            CloseHandle(TestParms->LogFile);
+            TestParms->LogFile = INVALID_HANDLE_VALUE;
         }
     }
 }
@@ -1728,6 +1730,8 @@ int main(int argc, char **argv) {
     LOG_VERBOSE("ParseArgs\n");
     if (ParseArgs(&TestParms, argc, argv) < 0)
         return -1;
+
+    FileIOOpen(&TestParms);
 
     LOG_VERBOSE("InitializeCriticalSection\n");
     InitializeCriticalSection(&DisplayCriticalSection);
@@ -1815,7 +1819,7 @@ int main(int argc, char **argv) {
                                          ? TestTypeRead
                                          : TestTypeWrite;
 
-                printf("Selected pipe %d\n", pipeInfo[userChoice - 1].PipeId);
+                printf("Selected pipe 0x%02X\n", pipeInfo[userChoice - 1].PipeId);
 
                 validInput = 1;
                 break;
@@ -1930,8 +1934,6 @@ int main(int argc, char **argv) {
         K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1,
                         &bIsoAsap);
 
-    FileIOOpen(&TestParms);
-
     if (ReadTest) {
         LOG_VERBOSE("ResumeThread for ReadTest\n");
         SetThreadPriority(ReadTest->ThreadHandle, TestParms.priority);
@@ -1945,6 +1947,8 @@ int main(int argc, char **argv) {
     }
 
     LOGMSG0("Press 'Q' to abort\n");
+
+    FileIOLog(&TestParms);
 
     while (!TestParms.isCancelled) {
         Sleep(TestParms.refresh);
@@ -1994,10 +1998,14 @@ int main(int argc, char **argv) {
             TestParms.isCancelled = TRUE;
         }
 
-        if (ReadTest && TestParms.fileIO)
-            FileIORead(&TestParms, ReadTest);
-        if (WriteTest && TestParms.fileIO)
-            FileIOWrite(&TestParms, WriteTest);
+        if (TestParms.fileIO) {
+            if (ReadTest) {
+                FileIOBuffer(&TestParms, ReadTest);
+            }
+            if (WriteTest) {
+                FileIOBuffer(&TestParms, WriteTest);
+            }
+        }
 
         LOG_VERBOSE("ShowRunningStatus\n");
         ShowRunningStatus(ReadTest, WriteTest);
@@ -2005,8 +2013,6 @@ int main(int argc, char **argv) {
         while (_kbhit())
             _getch();
     }
-
-    FileIOClose(&TestParms);
 
     LOG_VERBOSE("WaitForTestTransfer\n");
     WaitForTestTransfer(ReadTest, 1000);
@@ -2031,6 +2037,9 @@ int main(int argc, char **argv) {
         ShowTransfer(ReadTest);
     if (WriteTest)
         ShowTransfer(WriteTest);
+
+    freopen("CON", "w", stdout);
+    freopen("CON", "w", stderr);
 
 Done:
     LOG_VERBOSE("Free TransferParam\n");
@@ -2076,6 +2085,8 @@ Done:
         _getch();
         LOGMSG0("\n");
     }
+
+    FileIOClose(&TestParms);
 
     return 0;
 }
