@@ -1,3 +1,6 @@
+# Goal of uvperf
+uvperf 테스트 툴을 사용하여, host<->device의 Bulk In, Bulk Out, Isochronous In transfer들의 bandwidth. accuracy를 파악할 수 있다.
+
 # How to run uvperf
 ## Install libusbK driver
 1. Using Zadig-2.8.exe
