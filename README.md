@@ -1,5 +1,5 @@
 # Goal of uvperf
-uvperf 테스트 툴을 사용하여, host<->device의 Bulk In, Bulk Out, Isochronous In transfer들의 bandwidth. accuracy를 파악할 수 있다.
+USBdevice Vault perf 테스트 툴을 사용하여, host<->device의 Bulk In, Bulk Out, Isochronous In transfer들의 bandwidth. accuracy를 파악할 수 있다.
 
 # How to run uvperf
 ## Install libusbK driver
@@ -47,3 +47,8 @@ then, you can select device and endpoint
 ### Bandwitdh
 
 In the middle of excution, press "q" or "Q" then, show the log average Bandwidth ( Mpbs ), and total transfer
+
+### Known Issue
+1. Windows상에서만 test 가능
+2. Multi transfer 미지원
+
