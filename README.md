@@ -1,9 +1,13 @@
-# 실행방법
+# How to run uvperf
+## Install libusbK driver
+1. Using Zadig-2.8.exe
+2. If you can't see the deivce, check Option->List All Devices
+3. Install libusbK(v3.1.0.0)
 ## uvperf.c
 1. gcc로 컴파일 할 경우 링크 경로 지정 -> -L"{libusbk.dll 경로}" -l"usb"
 2. CMake
 3. Visual Studio로 컴파일 할 경우 ->  #pragma comment(lib, "libusbk.lib") 추가
-## UVTest 사용법
+## Usage of uvperf
 
 ### CLI
 
@@ -39,4 +43,4 @@ then, you can select device and endpoint
 
 ### Bandwitdh
 
-In the middle of excution, press "q" or "Q" then, show the log average Bandwidth ( Mpbs ), total transfer
+In the middle of excution, press "q" or "Q" then, show the log average Bandwidth ( Mpbs ), and total transfer
