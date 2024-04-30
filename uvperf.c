@@ -1066,7 +1066,7 @@ void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM 
                                    gReadParamTransferParam.LastTick.tv_nsec / 1000000000.0))) {
         LOG_MSG("Synchronizing Read %d..\n", abs(gReadParamTransferParam.Packets));
         errorCount++;
-        if(errorCount > 5){
+        if (errorCount > 5) {
             LOGERR0("Too many errors, exiting..\n");
             return;
         }
@@ -1079,7 +1079,7 @@ void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM 
                                     gWriteParamTransferParam.LastTick.tv_nsec / 1000000000.0))) {
         LOG_MSG("Synchronizing Write %d..\n", abs(gWriteParamTransferParam.Packets));
         errorCount++;
-        if(errorCount > 5){
+        if (errorCount > 5) {
             LOGERR0("Too many errors, exiting..\n");
             return;
         }
@@ -1631,15 +1631,14 @@ BOOL WaitForTestTransfer(PUVPERF_TRANSFER_PARAM transferParam, UINT msToWait) {
 }
 
 void FileIOOpen(PUVPERF_PARAM TestParms) {
-    
+
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
 
     // strftime(TestParms->BufferFileName, MAX_PATH - 1, "uvperf_buffer_%Y%m%d_%H%M%S.dat",
     //          t);
     // TestParms->BufferFileName[MAX_PATH - 1] = '\0';
-    strftime(TestParms->LogFileName, MAX_PATH - 1, "uvperf_log_%Y%m%d_%H%M%S.txt",
-             t);
+    strftime(TestParms->LogFileName, MAX_PATH - 1, "uvperf_log_%Y%m%d_%H%M%S.txt", t);
     TestParms->LogFileName[MAX_PATH - 1] = '\0';
 
     if (TestParms->fileIO) {
@@ -1781,10 +1780,10 @@ int main(int argc, char **argv) {
                 while (K.QueryPipeEx(TestParms.InterfaceHandle, altSetting, pipeIndex,
                                      &pipeInfo[pipeIndex])) {
                     LOG_MSG("Pipe %d: Type : %11s, %5s, MaxPacketSize=%d\n", pipeIndex + 1,
-                           EndpointTypeDisplayString[pipeInfo[pipeIndex].PipeType],
-                           (pipeInfo[pipeIndex].PipeId & USB_ENDPOINT_DIRECTION_MASK) ? "Read"
-                                                                                      : "Write",
-                           pipeInfo[pipeIndex].MaximumPacketSize);
+                            EndpointTypeDisplayString[pipeInfo[pipeIndex].PipeType],
+                            (pipeInfo[pipeIndex].PipeId & USB_ENDPOINT_DIRECTION_MASK) ? "Read"
+                                                                                       : "Write",
+                            pipeInfo[pipeIndex].MaximumPacketSize);
                     pipeIndex++;
                 }
 
@@ -1794,13 +1793,13 @@ int main(int argc, char **argv) {
                 }
 
                 LOG_MSG("Enter the number of the pipe to use for transfer (1-%d), 'Q' to quit: ",
-                       pipeIndex);
+                        pipeIndex);
                 int ch = _getche();
                 printf("\n");
 
                 if (ch == 'Q' || ch == 'q') {
                     LOG_MSG("Exiting program.\n");
-                    return 0; // 종료
+                    return 0;
                 }
 
                 userChoice = ch - '0';
@@ -1813,6 +1812,9 @@ int main(int argc, char **argv) {
                 TestParms.TestType = (pipeInfo[userChoice - 1].PipeId & USB_ENDPOINT_DIRECTION_MASK)
                                          ? TestTypeRead
                                          : TestTypeWrite;
+                TestParms.intf = TestParms.InterfaceDescriptor.bInterfaceNumber;
+                TestParms.altf = TestParms.InterfaceDescriptor.bAlternateSetting;
+                TestParms.SelectedDeviceProfile = deviceInfo;
 
                 LOG_MSG("Selected pipe 0x%02X\n", pipeInfo[userChoice - 1].PipeId);
 
