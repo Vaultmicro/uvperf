@@ -1,5 +1,6 @@
 /*!********************************************************************
  *   uvperf.c
+ *   Version : V1.0.3
  *   This is a simple utility to test the performance of USB transfers.
  *   It is designed to be used with the libusbK driver.
  *   The utility will perform a series of transfers to the specified endpoint
@@ -270,7 +271,7 @@ char *GetWinErrorMessage(DWORD errorCode) {
         return NULL;
 
     if (errorCode == ERROR_GEN_FAILURE || errorCode == ERROR_DEVICE_NOT_CONNECTED) {
-        fprintf(stderr, "Device disconnected.\n");
+        LOGERR0("Device disconnected.\n");
     }
 
     DWORD flags =
@@ -770,7 +771,7 @@ Done:
 void VerifyLoopData() { return; }
 
 void ShowUsage() {
-    LOG_MSG("Version : V1.0.2\n");
+    LOG_MSG("Version : V1.0.3\n");
     LOG_MSG("\n");
     LOG_MSG("Usage: uvperf -v VID -p PID -i INTERFACE -a AltInterface -e ENDPOINT -m TRANSFERMODE "
             "-T TIMER -t TIMEOUT -f FileIO -b BUFFERCOUNT-l READLENGTH -w WRITELENGTH -r REPEAT -S "
@@ -1044,6 +1045,7 @@ void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM 
     UINT totalIsoPackets = 0;
     UINT goodIsoPackets = 0;
     UINT badIsoPackets = 0;
+    UINT errorCount = 0;
 
     // LOCK the display critical section
     EnterCriticalSection(&DisplayCriticalSection);
@@ -1063,6 +1065,11 @@ void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM 
                                   (gReadParamTransferParam.LastTick.tv_sec +
                                    gReadParamTransferParam.LastTick.tv_nsec / 1000000000.0))) {
         LOG_MSG("Synchronizing Read %d..\n", abs(gReadParamTransferParam.Packets));
+        errorCount++;
+        if(errorCount > 5){
+            LOGERR0("Too many errors, exiting..\n");
+            return;
+        }
     }
 
     if (writeParam != NULL && (!gWriteParamTransferParam.StartTick.tv_nsec ||
@@ -1071,6 +1078,12 @@ void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM 
                                    (gWriteParamTransferParam.LastTick.tv_sec +
                                     gWriteParamTransferParam.LastTick.tv_nsec / 1000000000.0))) {
         LOG_MSG("Synchronizing Write %d..\n", abs(gWriteParamTransferParam.Packets));
+        errorCount++;
+        if(errorCount > 5){
+            LOGERR0("Too many errors, exiting..\n");
+            return;
+        }
+
     } else {
         if (readParam) {
             GetAverageBytesSec(&gReadParamTransferParam, &bpsReadOverall);
@@ -1379,16 +1392,16 @@ PUVPERF_TRANSFER_PARAM CreateTransferParam(PUVPERF_PARAM TestParam, int endpoint
             numIsoPackets =
                 transferParam->TestParms->bufferlength / transferParam->Ep.MaximumBytesPerInterval;
             transferParam->numberOFIsoPackets = numIsoPackets;
-            // if (numIsoPackets == 0 || ((numIsoPackets % 8)) ||
-            //     transferParam->TestParms->bufferlength %
-            //         transferParam->Ep.MaximumBytesPerInterval) {
-            //     const UINT minBufferSize = transferParam->Ep.MaximumBytesPerInterval * 8;
-            //     LOG_ERROR("Buffer size is not correct for isochronous pipe 0x%02X\n",
-            //               transferParam->Ep.PipeId);
-            //     LOG_ERROR("- Buffer size must be an interval of %u\n", minBufferSize);
-            //     FreeTransferParam(&transferParam);
-            //     goto Done;
-            // }
+            if (numIsoPackets == 0 || ((numIsoPackets % 8)) ||
+                transferParam->TestParms->bufferlength %
+                    transferParam->Ep.MaximumBytesPerInterval) {
+                const UINT minBufferSize = transferParam->Ep.MaximumBytesPerInterval * 8;
+                LOG_ERROR("Buffer size is not correct for isochronous pipe 0x%02X\n",
+                          transferParam->Ep.PipeId);
+                LOG_ERROR("- Buffer size must be an interval of %u\n", minBufferSize);
+                FreeTransferParam(&transferParam);
+                goto Done;
+            }
 
             for (bufferIndex = 0; bufferIndex < transferParam->TestParms->bufferCount;
                  bufferIndex++) {
@@ -1622,24 +1635,24 @@ void FileIOOpen(PUVPERF_PARAM TestParms) {
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
 
-    strftime(TestParms->BufferFileName, MAX_PATH - 1, "uvperf_buffer_%Y%m%d_%H%M%S.dat",
-             t);
-    TestParms->BufferFileName[MAX_PATH - 1] = '\0';
+    // strftime(TestParms->BufferFileName, MAX_PATH - 1, "uvperf_buffer_%Y%m%d_%H%M%S.dat",
+    //          t);
+    // TestParms->BufferFileName[MAX_PATH - 1] = '\0';
     strftime(TestParms->LogFileName, MAX_PATH - 1, "uvperf_log_%Y%m%d_%H%M%S.txt",
              t);
     TestParms->LogFileName[MAX_PATH - 1] = '\0';
 
     if (TestParms->fileIO) {
-        TestParms->BufferFile =
-            CreateFile(TestParms->BufferFileName, GENERIC_READ | GENERIC_WRITE,
-                       FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
-                       OPEN_ALWAYS, // Open the file if it exists; otherwise, create it
-                       FILE_ATTRIBUTE_NORMAL, NULL);
+        // TestParms->BufferFile =
+        //     CreateFile(TestParms->BufferFileName, GENERIC_READ | GENERIC_WRITE,
+        //                FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+        //                OPEN_ALWAYS, // Open the file if it exists; otherwise, create it
+        //                FILE_ATTRIBUTE_NORMAL, NULL);
 
-        if (TestParms->BufferFile == INVALID_HANDLE_VALUE) {
-            LOG_ERROR("failed creating %s\n", TestParms->BufferFileName);
-            TestParms->fileIO = FALSE;
-        }
+        // if (TestParms->BufferFile == INVALID_HANDLE_VALUE) {
+        //     LOG_ERROR("failed creating %s\n", TestParms->BufferFileName);
+        //     TestParms->fileIO = FALSE;
+        // }
 
         TestParms->LogFile =
             CreateFile(TestParms->LogFileName, GENERIC_READ | GENERIC_WRITE,
@@ -1654,16 +1667,16 @@ void FileIOOpen(PUVPERF_PARAM TestParms) {
     }
 }
 
-void FileIOBuffer(PUVPERF_PARAM TestParms, PUVPERF_TRANSFER_PARAM transferParam) {
-    DWORD bytesWritten;
-    if (TestParms->fileIO && TestParms->BufferFile != INVALID_HANDLE_VALUE) {
-        if (!WriteFile(TestParms->BufferFile, transferParam->Buffer, TestParms->bufferlength,
-                       &bytesWritten, NULL)) {
-            DWORD errorCode = GetLastError(); // Retrieve the error code
-            LOG_ERROR("failed writing %s, Error code\n", TestParms->BufferFileName, errorCode);
-        }
-    }
-}
+// void FileIOBuffer(PUVPERF_PARAM TestParms, PUVPERF_TRANSFER_PARAM transferParam) {
+//     DWORD bytesWritten;
+//     if (TestParms->fileIO && TestParms->BufferFile != INVALID_HANDLE_VALUE) {
+//         if (!WriteFile(TestParms->BufferFile, transferParam->Buffer, TestParms->bufferlength,
+//                        &bytesWritten, NULL)) {
+//             DWORD errorCode = GetLastError(); // Retrieve the error code
+//             LOG_ERROR("failed writing %s, Error code\n", TestParms->BufferFileName, errorCode);
+//         }
+//     }
+// }
 
 void FileIOLog(PUVPERF_PARAM TestParms) {
     if (!TestParms->fileIO) {
@@ -1678,10 +1691,10 @@ void FileIOLog(PUVPERF_PARAM TestParms) {
 
 void FileIOClose(PUVPERF_PARAM TestParms) {
     if (TestParms->fileIO) {
-        if (TestParms->BufferFile != INVALID_HANDLE_VALUE) {
-            CloseHandle(TestParms->BufferFile);
-            TestParms->BufferFile = INVALID_HANDLE_VALUE;
-        }
+        // if (TestParms->BufferFile != INVALID_HANDLE_VALUE) {
+        //     CloseHandle(TestParms->BufferFile);
+        //     TestParms->BufferFile = INVALID_HANDLE_VALUE;
+        // }
 
         if (TestParms->LogFile != INVALID_HANDLE_VALUE) {
             fclose(stdout);
@@ -1761,13 +1774,13 @@ int main(int argc, char **argv) {
                     continue;
                 }
 
-                printf("Device %s initialized successfully.\n", deviceInfo->DevicePath);
+                LOG_MSG("Device %s initialized successfully.\n", deviceInfo->DevicePath);
 
-                printf("Scanning for pipes...\n");
+                LOG_MSG("Scanning for pipes...\n");
                 pipeIndex = 0;
                 while (K.QueryPipeEx(TestParms.InterfaceHandle, altSetting, pipeIndex,
                                      &pipeInfo[pipeIndex])) {
-                    printf("Pipe %d: Type : %11s, %5s, MaxPacketSize=%d\n", pipeIndex + 1,
+                    LOG_MSG("Pipe %d: Type : %11s, %5s, MaxPacketSize=%d\n", pipeIndex + 1,
                            EndpointTypeDisplayString[pipeInfo[pipeIndex].PipeType],
                            (pipeInfo[pipeIndex].PipeId & USB_ENDPOINT_DIRECTION_MASK) ? "Read"
                                                                                       : "Write",
@@ -1776,23 +1789,23 @@ int main(int argc, char **argv) {
                 }
 
                 if (pipeIndex == 0) {
-                    printf("No pipes available.\n");
+                    LOGERR0("No pipes available.\n");
                     continue;
                 }
 
-                printf("Enter the number of the pipe to use for transfer (1-%d), 'Q' to quit: ",
+                LOG_MSG("Enter the number of the pipe to use for transfer (1-%d), 'Q' to quit: ",
                        pipeIndex);
                 int ch = _getche();
                 printf("\n");
 
                 if (ch == 'Q' || ch == 'q') {
-                    printf("Exiting program.\n");
+                    LOG_MSG("Exiting program.\n");
                     return 0; // 종료
                 }
 
                 userChoice = ch - '0';
                 if (userChoice < 1 || userChoice > pipeIndex) {
-                    printf("Invalid pipe selection.\n");
+                    LOGERR0("Invalid pipe selection.\n");
                     continue;
                 }
 
@@ -1801,7 +1814,7 @@ int main(int argc, char **argv) {
                                          ? TestTypeRead
                                          : TestTypeWrite;
 
-                printf("Selected pipe 0x%02X\n", pipeInfo[userChoice - 1].PipeId);
+                LOG_MSG("Selected pipe 0x%02X\n", pipeInfo[userChoice - 1].PipeId);
 
                 validInput = 1;
                 break;
@@ -1980,14 +1993,14 @@ int main(int argc, char **argv) {
             TestParms.isCancelled = TRUE;
         }
 
-        if (TestParms.fileIO) {
-            if (ReadTest) {
-                FileIOBuffer(&TestParms, ReadTest);
-            }
-            if (WriteTest) {
-                FileIOBuffer(&TestParms, WriteTest);
-            }
-        }
+        // if (TestParms.fileIO) {
+        //     if (ReadTest) {
+        //         FileIOBuffer(&TestParms, ReadTest);
+        //     }
+        //     if (WriteTest) {
+        //         FileIOBuffer(&TestParms, WriteTest);
+        //     }
+        // }
 
         LOG_VERBOSE("ShowRunningStatus\n");
         ShowRunningStatus(ReadTest, WriteTest);
