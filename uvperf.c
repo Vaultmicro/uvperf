@@ -1774,11 +1774,13 @@ int main(int argc, char **argv) {
                     pipeIndex = 0;
                     while (K.QueryPipeEx(TestParms.InterfaceHandle, altSetting, pipeIndex,
                                          &pipeInfo[pipeIndex])) {
-                        LOG_MSG("Pipe %d: Type : %11s, %3s, MaxPacketSize=%d\n", pipeIndex + 1,
+                        LOG_MSG("Pipe %d: Type : %11s, %3s, MaxPacketSize : %4d, MC = %2d\n",
+                                pipeIndex + 1,
                                 EndpointTypeDisplayString[pipeInfo[pipeIndex].PipeType],
                                 (pipeInfo[pipeIndex].PipeId & USB_ENDPOINT_DIRECTION_MASK) ? "in"
                                                                                            : "out",
-                                pipeInfo[pipeIndex].MaximumPacketSize);
+                                pipeInfo[pipeIndex].MaximumPacketSize,
+                                (pipeInfo[pipeIndex].MaximumPacketSize & 0x1800) >> 10);
                         pipeIndex++;
                     }
 
