@@ -1,6 +1,6 @@
 /*!********************************************************************
  *   uvperf.c
- *   Version : V1.0.3
+ *   Version : V1.0.5
  *   This is a simple utility to test the performance of USB transfers.
  *   It is designed to be used with the libusbK driver.
  *   The utility will perform a series of transfers to the specified endpoint
@@ -768,7 +768,7 @@ Done:
 void VerifyLoopData() { return; }
 
 void ShowUsage() {
-    LOG_MSG("Version : V1.0.3\n");
+    LOG_MSG("Version : V1.0.5\n");
     LOG_MSG("\n");
     LOG_MSG("Usage: uvperf -v VID -p PID -i INTERFACE -a AltInterface -e ENDPOINT -m TRANSFERMODE "
             "-T TIMER -t TIMEOUT -f FileIO -b BUFFERCOUNT-l READLENGTH -w WRITELENGTH -r REPEAT -S \n");
@@ -1624,7 +1624,6 @@ BOOL WaitForTestTransfer(PUVPERF_TRANSFER_PARAM transferParam, UINT msToWait) {
 }
 
 void FileIOOpen(PUVPERF_PARAM TestParms) {
-
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
 
@@ -1747,7 +1746,6 @@ int main(int argc, char **argv) {
         }
         KLST_DEVINFO_HANDLE deviceInfo;
         WINUSB_PIPE_INFORMATION_EX pipeInfo[32];
-        UCHAR altSetting = 0;
         int userChoice;
         UCHAR pipeIndex;
 
@@ -1766,53 +1764,57 @@ int main(int argc, char **argv) {
                     continue;
                 }
 
+                UCHAR altSetting = 0;
+
                 LOG_MSG("Device %s initialized successfully.\n", deviceInfo->DevicePath);
+                while (K.QueryInterfaceSettings(TestParms.InterfaceHandle, altSetting,
+                                                &TestParms.InterfaceDescriptor)) {
+                    LOG_MSG("Interface %d: Checking pipes...\n",
+                            TestParms.InterfaceDescriptor.bInterfaceNumber);
+                    pipeIndex = 0;
+                    while (K.QueryPipeEx(TestParms.InterfaceHandle, altSetting, pipeIndex,
+                                         &pipeInfo[pipeIndex])) {
+                        LOG_MSG("Pipe %d: Type : %11s, %3s, MaxPacketSize=%d\n", pipeIndex + 1,
+                                EndpointTypeDisplayString[pipeInfo[pipeIndex].PipeType],
+                                (pipeInfo[pipeIndex].PipeId & USB_ENDPOINT_DIRECTION_MASK) ? "in"
+                                                                                           : "out",
+                                pipeInfo[pipeIndex].MaximumPacketSize);
+                        pipeIndex++;
+                    }
 
-                LOG_MSG("Scanning for pipes...\n");
-                pipeIndex = 0;
-                while (K.QueryPipeEx(TestParms.InterfaceHandle, altSetting, pipeIndex,
-                                     &pipeInfo[pipeIndex])) {
-                    LOG_MSG("Pipe %d: Type : %11s, %5s, MaxPacketSize=%d\n", pipeIndex + 1,
-                            EndpointTypeDisplayString[pipeInfo[pipeIndex].PipeType],
-                            (pipeInfo[pipeIndex].PipeId & USB_ENDPOINT_DIRECTION_MASK) ? "Read"
-                                                                                       : "Write",
-                            pipeInfo[pipeIndex].MaximumPacketSize);
-                    pipeIndex++;
-                }
+                    if (pipeIndex == 0) {
+                        LOGERR0("No pipes available.\n");
+                        continue;
+                    }
 
-                if (pipeIndex == 0) {
-                    LOG_ERROR("No pipes available.\n");
-                    continue;
-                }
-
-                LOG_MSG("Enter the number of the pipe to use for transfer (1-%d), 'Q' to quit: ",
+                    LOG_MSG(
+                        "Enter the number of the pipe to use for transfer (1-%d), 'Q' to quit: ",
                         pipeIndex);
-                int ch = _getche();
-                fprintf(stderr, "\n");
+                    int ch = _getche();
+                    printf("\n");
 
-                if (ch == 'Q' || ch == 'q') {
-                    LOG_MSG("Exiting program.\n");
-                    return 0;
+                    if (ch == 'Q' || ch == 'q') {
+                        LOG_MSG("Exiting program.\n");
+                        return 0;
+                    }
+
+                    userChoice = ch - '0';
+                    if (userChoice < 1 || userChoice > pipeIndex) {
+                        LOGERR0("Invalid pipe selection.\n");
+                        continue;
+                    }
+
+                    TestParms.endpoint = (int)(pipeInfo[userChoice - 1].PipeId);
+                    TestParms.TestType =
+                        (pipeInfo[userChoice - 1].PipeId & USB_ENDPOINT_DIRECTION_MASK)
+                            ? TestTypeRead
+                            : TestTypeWrite;
+
+                    LOG_MSG("Selected pipe 0x%02X\n", pipeInfo[userChoice - 1].PipeId);
+
+                    validInput = 1;
+                    break;
                 }
-
-                userChoice = ch - '0';
-                if (userChoice < 1 || userChoice > pipeIndex) {
-                    LOGERR0("Invalid pipe selection.\n");
-                    continue;
-                }
-
-                TestParms.endpoint = (int)(pipeInfo[userChoice - 1].PipeId);
-                TestParms.TestType = (pipeInfo[userChoice - 1].PipeId & USB_ENDPOINT_DIRECTION_MASK)
-                                         ? TestTypeRead
-                                         : TestTypeWrite;
-                TestParms.intf = TestParms.InterfaceDescriptor.bInterfaceNumber;
-                TestParms.altf = TestParms.InterfaceDescriptor.bAlternateSetting;
-                TestParms.SelectedDeviceProfile = deviceInfo;
-
-                LOG_MSG("Selected pipe 0x%02X\n", pipeInfo[userChoice - 1].PipeId);
-
-                validInput = 1;
-                break;
             }
         } while (!validInput);
     } else {
