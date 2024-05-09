@@ -260,34 +260,6 @@ void FileIOClose(PUVPERF_PARAM TestParms);
 const char *TestDisplayString[] = {"None", "Read", "Write", "Loop", NULL};
 const char *EndpointTypeDisplayString[] = {"Control", "Isochronous", "Bulk", "Interrupt", NULL};
 
-char *GetWinErrorMessage(DWORD errorCode) {
-    char *buffer = NULL;
-
-    errorCode = errorCode ? errorCode : GetLastError();
-    if (!errorCode)
-        return NULL;
-
-    if (errorCode == ERROR_GEN_FAILURE || errorCode == ERROR_DEVICE_NOT_CONNECTED) {
-        LOGERR0("Device disconnected.\n");
-    }
-
-    DWORD flags =
-        FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_IGNORE_INSERTS;
-    if (FormatMessageA(flags, NULL, errorCode, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-                       (LPSTR)&buffer, 0, NULL) == 0) {
-        fprintf(stderr, "Failed to retrieve the error message for code %lu\n", errorCode);
-        return NULL;
-    }
-
-    return buffer;
-}
-
-void FreeWinErrorMessage(char *message) {
-    if (message) {
-        LocalFree(message);
-    }
-}
-
 LONG WinError(__in_opt DWORD errorCode) {
     LPSTR buffer = NULL;
 
@@ -297,7 +269,6 @@ LONG WinError(__in_opt DWORD errorCode) {
 
     if (FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_ALLOCATE_BUFFER, NULL, errorCode,
                        0, (LPSTR)&buffer, 0, NULL) > 0) {
-        // LOG_ERROR("%s\n", buffer);
         SetLastError(0);
     } else {
         LOGERR0("FormatMessage error!\n");
@@ -770,8 +741,9 @@ void VerifyLoopData() { return; }
 void ShowUsage() {
     LOG_MSG("Version : V1.0.5\n");
     LOG_MSG("\n");
-    LOG_MSG("Usage: uvperf -v VID -p PID -i INTERFACE -a AltInterface -e ENDPOINT -m TRANSFERMODE "
-            "-T TIMER -t TIMEOUT -f FileIO -b BUFFERCOUNT-l READLENGTH -w WRITELENGTH -r REPEAT -S \n");
+    LOG_MSG(
+        "Usage: uvperf -v VID -p PID -i INTERFACE -a AltInterface -e ENDPOINT -m TRANSFERMODE "
+        "-T TIMER -t TIMEOUT -f FileIO -b BUFFERCOUNT-l READLENGTH -w WRITELENGTH -r REPEAT -S \n");
     LOG_MSG("\t-v VID           USB Vendor ID\n");
     LOG_MSG("\t-p PID           USB Product ID\n");
     LOG_MSG("\t-i INTERFACE     USB Interface\n");
@@ -1177,14 +1149,10 @@ DWORD TransferThread(PUVPERF_TRANSFER_PARAM transferParam) {
             else {
                 transferParam->TotalErrorCount++;
                 transferParam->RunningErrorCount++;
-                LOG_ERROR("failed %s, %d of %d ret=%d\n",
+                LOG_ERROR("failed %s, %d of %d ret=%d, error message : %s\n",
                           TRANSFER_DISPLAY(transferParam, "reading", "writing"),
                           transferParam->RunningErrorCount, transferParam->TestParms->retry + 1,
-                          ret);
-
-                char *buffer = GetWinErrorMessage(-ret);
-                LOG_ERROR("error message : %s\n", buffer);
-                FreeWinErrorMessage(buffer);
+                          ret, strerror(ret));
                 K.ResetPipe(transferParam->TestParms->InterfaceHandle, transferParam->Ep.PipeId);
 
                 if (transferParam->RunningErrorCount > transferParam->TestParms->retry)
@@ -1245,10 +1213,8 @@ Done:
                                  transferParam->Ep.PipeId) &&
                     !transferParam->TestParms->isUserAborted) {
                     ret = WinError(0);
-                    LOG_ERROR("failed cancelling transfer ret = %d\n", ret);
-                    char *buffer = GetWinErrorMessage(-ret);
-                    LOG_ERROR("error message : %s", buffer);
-                    FreeWinErrorMessage(buffer);
+                    LOG_ERROR("failed cancelling transfer ret = %d, error message : %s\n", ret,
+                              strerror(ret));
                 } else {
                     CloseHandle(transferParam->TransferHandles[i].Overlapped.hEvent);
                     transferParam->TransferHandles[i].Overlapped.hEvent = NULL;
@@ -1409,9 +1375,11 @@ PUVPERF_TRANSFER_PARAM CreateTransferParam(PUVPERF_PARAM TestParam, int endpoint
                                  TestParam->InterfaceHandle, transferParam->Ep.PipeId,
                                  numIsoPackets, transferParam->TransferHandles[bufferIndex].Data,
                                  transferParam->TestParms->bufferlength)) {
+                    DWORD ec = GetLastError();
+
                     LOG_ERROR("IsochK_Init failed for isochronous pipe %02X\n",
                               transferParam->Ep.PipeId);
-                    LOG_ERROR("- ErrorCode = %u\n", GetLastError());
+                    LOG_ERROR("- ErrorCode = %u (%s)\n", ec, strerror(ec));
                     FreeTransferParam(&transferParam);
                     goto Done;
                 }
@@ -1419,9 +1387,11 @@ PUVPERF_TRANSFER_PARAM CreateTransferParam(PUVPERF_PARAM TestParam, int endpoint
                 if (!IsochK_SetPacketOffsets(
                         transferParam->TransferHandles[bufferIndex].IsochHandle,
                         transferParam->Ep.MaximumBytesPerInterval)) {
+                    DWORD ec = GetLastError();
+
                     LOG_ERROR("IsochK_SetPacketOffsets failed for isochronous pipe %02X\n",
                               transferParam->Ep.PipeId);
-                    LOG_ERROR("- ErrorCode = %u\n", GetLastError());
+                    LOG_ERROR("- ErrorCode = %u (%s)\n", ec, strerror(ec));
                     FreeTransferParam(&transferParam);
                     goto Done;
                 }
@@ -1627,24 +1597,10 @@ void FileIOOpen(PUVPERF_PARAM TestParms) {
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
 
-    // strftime(TestParms->BufferFileName, MAX_PATH - 1, "uvperf_buffer_%Y%m%d_%H%M%S.dat",
-    //          t);
-    // TestParms->BufferFileName[MAX_PATH - 1] = '\0';
     strftime(TestParms->LogFileName, MAX_PATH - 1, "uvperf_log_%Y%m%d_%H%M%S.txt", t);
     TestParms->LogFileName[MAX_PATH - 1] = '\0';
 
     if (TestParms->fileIO) {
-        // TestParms->BufferFile =
-        //     CreateFile(TestParms->BufferFileName, GENERIC_READ | GENERIC_WRITE,
-        //                FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
-        //                OPEN_ALWAYS, // Open the file if it exists; otherwise, create it
-        //                FILE_ATTRIBUTE_NORMAL, NULL);
-
-        // if (TestParms->BufferFile == INVALID_HANDLE_VALUE) {
-        //     LOG_ERROR("failed creating %s\n", TestParms->BufferFileName);
-        //     TestParms->fileIO = FALSE;
-        // }
-
         TestParms->LogFile =
             CreateFile(TestParms->LogFileName, GENERIC_READ | GENERIC_WRITE,
                        FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
@@ -1657,17 +1613,6 @@ void FileIOOpen(PUVPERF_PARAM TestParms) {
         }
     }
 }
-
-// void FileIOBuffer(PUVPERF_PARAM TestParms, PUVPERF_TRANSFER_PARAM transferParam) {
-//     DWORD bytesWritten;
-//     if (TestParms->fileIO && TestParms->BufferFile != INVALID_HANDLE_VALUE) {
-//         if (!WriteFile(TestParms->BufferFile, transferParam->Buffer, TestParms->bufferlength,
-//                        &bytesWritten, NULL)) {
-//             DWORD errorCode = GetLastError(); // Retrieve the error code
-//             LOG_ERROR("failed writing %s, Error code\n", TestParms->BufferFileName, errorCode);
-//         }
-//     }
-// }
 
 void FileIOLog(PUVPERF_PARAM TestParms) {
     if (!TestParms->fileIO) {
@@ -1725,9 +1670,7 @@ int main(int argc, char **argv) {
     LOG_VERBOSE("LibusbK device List Initialize\n");
     if (!LstK_Init(&TestParms.DeviceList, 0)) {
         ec = GetLastError();
-        char *buffer = GetWinErrorMessage(ec);
-        LOG_ERROR("Failed to initialize device list ec=%08Xh, message %s: \n", ec, buffer);
-        FreeWinErrorMessage(buffer);
+        LOG_ERROR("Failed to initialize device list ec=%08Xh, message %s: \n", ec, strerror(ec));
         goto Done;
     }
 
@@ -1754,13 +1697,15 @@ int main(int argc, char **argv) {
             while (LstK_MoveNext(TestParms.DeviceList, &deviceInfo)) {
                 if (!LibK_LoadDriverAPI(&K, deviceInfo->DriverID)) {
                     WinError(GetLastError());
-                    LOG_ERROR("Cannot load driver API for %s\n", GetDrvIdString(deviceInfo->DriverID));
+                    LOG_ERROR("Cannot load driver API for %s\n",
+                              GetDrvIdString(deviceInfo->DriverID));
                     continue;
                 }
 
                 if (!K.Init(&TestParms.InterfaceHandle, deviceInfo)) {
                     WinError(GetLastError());
-                    LOG_ERROR("Cannot initialize device interface for %s\n", deviceInfo->DevicePath);
+                    LOG_ERROR("Cannot initialize device interface for %s\n",
+                              deviceInfo->DevicePath);
                     continue;
                 }
 
@@ -1841,10 +1786,8 @@ int main(int argc, char **argv) {
             if (!K.SetPipePolicy(TestParms.InterfaceHandle, ReadTest->Ep.PipeId, RAW_IO, 1,
                                  &TestParms.UseRawIO)) {
                 ec = GetLastError();
-                char *buffer = GetWinErrorMessage(ec);
                 LOG_ERROR("SetPipePolicy:RAW_IO failed. ErrorCode=%08Xh message : %s\n", ec,
-                          buffer);
-                FreeWinErrorMessage(buffer);
+                          strerror(ec));
                 goto Done;
             }
         }
@@ -1859,11 +1802,9 @@ int main(int argc, char **argv) {
             if (!K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId,
                                  ISO_NUM_FIXED_PACKETS, 2, &TestParms.fixedIsoPackets)) {
                 ec = GetLastError();
-                char *buffer = GetWinErrorMessage(ec);
                 LOG_ERROR("SetPipePolicy:ISO_NUM_FIXED_PACKETS failed. ErrorCode=0x%08X, "
                           "message : %s\n",
-                          ec, buffer);
-                FreeWinErrorMessage(buffer);
+                          ec, strerror(ec));
                 goto Done;
             }
         }
@@ -1871,9 +1812,8 @@ int main(int argc, char **argv) {
             if (!K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId, RAW_IO, 1,
                                  &TestParms.UseRawIO)) {
                 ec = GetLastError();
-                char *buffer = GetWinErrorMessage(ec);
-                LOG_ERROR("SetPipePolicy:RAW_IO failed. ErrorCode=0x%08X\n", ec, buffer);
-                FreeWinErrorMessage(buffer);
+                LOG_ERROR("SetPipePolicy:RAW_IO failed. ErrorCode=0x%08X\n, gessage : %s", ec,
+                          strerror(ec));
                 goto Done;
             }
         }
@@ -1897,9 +1837,7 @@ int main(int argc, char **argv) {
         LOG_VERBOSE("GetCurrentFrameNumber\n");
         if (!K.GetCurrentFrameNumber(TestParms.InterfaceHandle, &frameNumber)) {
             ec = GetLastError();
-            char *buffer = GetWinErrorMessage(ec);
-            LOG_ERROR("GetCurrentFrameNumber Failed. ErrorCode=%u, message : %s", ec, buffer);
-            FreeWinErrorMessage(buffer);
+            LOG_ERROR("GetCurrentFrameNumber Failed. ErrorCode=%u, message : %s", ec, strerror(ec));
             goto Done;
         }
         frameNumber += TestParms.bufferCount * 2;
