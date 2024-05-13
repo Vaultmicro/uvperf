@@ -1,6 +1,6 @@
 /*!*********************************************************************
  *   uvperf.c
- *   Version : V1.0.5
+ *   Version : V1.0.6
  *   Author : usiop-vault
  *   This is a simple utility to test the performance of USB transfers.
  *   It is designed to be used with the libusbK driver.
@@ -740,7 +740,7 @@ Done:
 void VerifyLoopData() { return; }
 
 void ShowUsage() {
-    LOG_MSG("Version : V1.0.5\n");
+    LOG_MSG("Version : V1.0.6\n");
     LOG_MSG("\n");
     LOG_MSG(
         "Usage: uvperf -v VID -p PID -i INTERFACE -a AltInterface -e ENDPOINT -m TRANSFERMODE "
