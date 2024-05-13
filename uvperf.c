@@ -1,6 +1,7 @@
-/*!********************************************************************
+/*!*********************************************************************
  *   uvperf.c
  *   Version : V1.0.5
+ *   Author : usiop-vault
  *   This is a simple utility to test the performance of USB transfers.
  *   It is designed to be used with the libusbK driver.
  *   The utility will perform a series of transfers to the specified endpoint
@@ -1719,13 +1720,15 @@ int main(int argc, char **argv) {
                     pipeIndex = 0;
                     while (K.QueryPipeEx(TestParms.InterfaceHandle, altSetting, pipeIndex,
                                          &pipeInfo[pipeIndex])) {
-                        LOG_MSG("Pipe %d: Type : %11s, %3s, MaxPacketSize : %4d, MC = %2d\n",
+                        LOG_MSG("Pipe %d: Type : %11s, %3s, MaximumBytesPerInterval : %4d, "
+                                "MaxPacketSize : %4d, MC = %2d\n",
                                 pipeIndex + 1,
                                 EndpointTypeDisplayString[pipeInfo[pipeIndex].PipeType],
                                 (pipeInfo[pipeIndex].PipeId & USB_ENDPOINT_DIRECTION_MASK) ? "in"
                                                                                            : "out",
+                                pipeInfo[pipeIndex].MaximumBytesPerInterval,
                                 pipeInfo[pipeIndex].MaximumPacketSize,
-                                (pipeInfo[pipeIndex].MaximumPacketSize & 0x1800) >> 10);
+                                (pipeInfo[pipeIndex].MaximumPacketSize & 0x1800) >> 11);
                         pipeIndex++;
                     }
 
