@@ -90,9 +90,9 @@ typedef enum _BENCHMARK_DEVICE_COMMAND {
 
 typedef enum _UVPERF_DEVICE_TRANSFER_TYPE {
     TestTypeNone = 0x00,
-    TestTypeRead = 0x01,
-    TestTypeWrite = 0x02,
-    TestTypeLoop = TestTypeRead | TestTypeWrite,
+    TestTypeIn = 0x01,
+    TestTypeOut = 0x02,
+    TestTypeLoop = TestTypeIn | TestTypeOut,
 } UVPERF_DEVICE_TRANSFER_TYPE,
     *PUVPERF_DEVICE_TRANSFER_TYPE;
 
@@ -776,7 +776,7 @@ void SetParamsDefaults(PUVPERF_PARAM TestParms) {
     TestParms->altf = -1;
     TestParms->endpoint = 0x00;
     TestParms->TransferMode = TRANSFER_MODE_SYNC;
-    TestParms->TestType = TestTypeRead;
+    TestParms->TestType = TestTypeIn;
     TestParms->Timer = 0;
     TestParms->timeout = 3000;
     TestParms->fileIO = FALSE;
@@ -957,10 +957,10 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char **argv) {
             TestParms->ShowTransfer = TRUE;
             break;
         case 'R':
-            TestParms->TestType = TestTypeRead;
+            TestParms->TestType = TestTypeIn;
             break;
         case 'W':
-            TestParms->TestType = TestTypeWrite;
+            TestParms->TestType = TestTypeOut;
             break;
         case 'L':
             TestParms->TestType = TestTypeLoop;
@@ -1078,7 +1078,7 @@ void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM 
             badIsoPackets += gWriteParamTransferParam.IsochResults.BadPackets;
         }
         if (totalIsoPackets) {
-            LOG_MSG("Average %.2f Mbps\n", (bpsReadOverall + bpsWriteOverall) * 8 / 1000 / 1000);
+            LOG_MSG("Average %.2f Mbps\n", ((bpsReadOverall + bpsWriteOverall) * 8) / 1000 / 1000);
             LOG_MSG("Total %d Transfer\n", totalPackets);
             LOG_MSG("ISO-Packets (Total/Good/Bad) : %u/%u/%u\n", totalIsoPackets, goodIsoPackets,
                     badIsoPackets);
@@ -1452,7 +1452,7 @@ Done:
 }
 
 void GetAverageBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE *byteps) {
-    DWORD elapsedSeconds;
+    DWORD elapsedSeconds = 0.0;
     if (!transferParam)
         return;
 
@@ -1465,6 +1465,8 @@ void GetAverageBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE *byteps) {
             (transferParam->LastTick.tv_nsec - transferParam->StartTick.tv_nsec) / 1000000000.0;
 
         *byteps = (DOUBLE)transferParam->TotalTransferred / elapsedSeconds;
+        if(transferParam->TotalTransferred == 0)
+            *byteps = 0;
     } else {
         *byteps = 0;
     }
@@ -1643,8 +1645,8 @@ void FileIOClose(PUVPERF_PARAM TestParms) {
 
 int main(int argc, char **argv) {
     UVPERF_PARAM TestParms;
-    PUVPERF_TRANSFER_PARAM ReadTest = NULL;
-    PUVPERF_TRANSFER_PARAM WriteTest = NULL;
+    PUVPERF_TRANSFER_PARAM InTest = NULL;
+    PUVPERF_TRANSFER_PARAM OutTest = NULL;
     int key;
     long ec;
     unsigned int count;
@@ -1757,8 +1759,8 @@ int main(int argc, char **argv) {
                     TestParms.endpoint = (int)(pipeInfo[userChoice - 1].PipeId);
                     TestParms.TestType =
                         (pipeInfo[userChoice - 1].PipeId & USB_ENDPOINT_DIRECTION_MASK)
-                            ? TestTypeRead
-                            : TestTypeWrite;
+                            ? TestTypeIn
+                            : TestTypeOut;
 
                     LOG_MSG("Selected pipe 0x%02X\n", pipeInfo[userChoice - 1].PipeId);
 
@@ -1779,14 +1781,14 @@ int main(int argc, char **argv) {
         goto Done;
     }
 
-    if (TestParms.TestType & TestTypeRead) {
-        LOG_VERBOSE("CreateTransferParam for ReadTest\n");
-        ReadTest =
+    if (TestParms.TestType & TestTypeIn) {
+        LOG_VERBOSE("CreateTransferParam for InTest\n");
+        InTest =
             CreateTransferParam(&TestParms, TestParms.endpoint | USB_ENDPOINT_DIRECTION_MASK);
-        if (!ReadTest)
+        if (!InTest)
             goto Done;
         if (TestParms.UseRawIO != 0xFF) {
-            if (!K.SetPipePolicy(TestParms.InterfaceHandle, ReadTest->Ep.PipeId, RAW_IO, 1,
+            if (!K.SetPipePolicy(TestParms.InterfaceHandle, InTest->Ep.PipeId, RAW_IO, 1,
                                  &TestParms.UseRawIO)) {
                 ec = GetLastError();
                 LOG_ERROR("SetPipePolicy:RAW_IO failed. ErrorCode=%08Xh message : %s\n", ec,
@@ -1796,13 +1798,13 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (TestParms.TestType & TestTypeWrite) {
-        LOG_VERBOSE("CreateTransferParam for WriteTest\n");
-        WriteTest = CreateTransferParam(&TestParms, TestParms.endpoint & 0x0F);
-        if (!WriteTest)
+    if (TestParms.TestType & TestTypeOut) {
+        LOG_VERBOSE("CreateTransferParam for OutTest\n");
+        OutTest = CreateTransferParam(&TestParms, TestParms.endpoint & 0x0F);
+        if (!OutTest)
             goto Done;
         if (TestParms.fixedIsoPackets) {
-            if (!K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId,
+            if (!K.SetPipePolicy(TestParms.InterfaceHandle, OutTest->Ep.PipeId,
                                  ISO_NUM_FIXED_PACKETS, 2, &TestParms.fixedIsoPackets)) {
                 ec = GetLastError();
                 LOG_ERROR("SetPipePolicy:ISO_NUM_FIXED_PACKETS failed. ErrorCode=0x%08X, "
@@ -1812,7 +1814,7 @@ int main(int argc, char **argv) {
             }
         }
         if (TestParms.UseRawIO != 0xFF) {
-            if (!K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId, RAW_IO, 1,
+            if (!K.SetPipePolicy(TestParms.InterfaceHandle, OutTest->Ep.PipeId, RAW_IO, 1,
                                  &TestParms.UseRawIO)) {
                 ec = GetLastError();
                 LOG_ERROR("SetPipePolicy:RAW_IO failed. ErrorCode=0x%08X\n, gessage : %s", ec,
@@ -1823,19 +1825,19 @@ int main(int argc, char **argv) {
     }
 
     if (TestParms.verify) {
-        if (ReadTest && WriteTest) {
-            LOG_VERBOSE("CreateVerifyBuffer for WriteTest\n");
-            if (CreateVerifyBuffer(&TestParms, WriteTest->Ep.MaximumPacketSize) < 0)
+        if (InTest && OutTest) {
+            LOG_VERBOSE("CreateVerifyBuffer for OutTest\n");
+            if (CreateVerifyBuffer(&TestParms, OutTest->Ep.MaximumPacketSize) < 0)
                 goto Done;
-        } else if (ReadTest) {
-            LOG_VERBOSE("CreateVerifyBuffer for ReadTest\n");
-            if (CreateVerifyBuffer(&TestParms, ReadTest->Ep.MaximumPacketSize) < 0)
+        } else if (InTest) {
+            LOG_VERBOSE("CreateVerifyBuffer for InTest\n");
+            if (CreateVerifyBuffer(&TestParms, InTest->Ep.MaximumPacketSize) < 0)
                 goto Done;
         }
     }
 
-    if ((WriteTest && WriteTest->Ep.PipeType == UsbdPipeTypeIsochronous) ||
-        (ReadTest && ReadTest->Ep.PipeType == UsbdPipeTypeIsochronous)) {
+    if ((OutTest && OutTest->Ep.PipeType == UsbdPipeTypeIsochronous) ||
+        (InTest && InTest->Ep.PipeType == UsbdPipeTypeIsochronous)) {
         UINT frameNumber;
         LOG_VERBOSE("GetCurrentFrameNumber\n");
         if (!K.GetCurrentFrameNumber(TestParms.InterfaceHandle, &frameNumber)) {
@@ -1844,41 +1846,41 @@ int main(int argc, char **argv) {
             goto Done;
         }
         frameNumber += TestParms.bufferCount * 2;
-        if (WriteTest) {
-            WriteTest->frameNumber = frameNumber;
+        if (OutTest) {
+            OutTest->frameNumber = frameNumber;
             frameNumber++;
         }
-        if (ReadTest) {
-            ReadTest->frameNumber = frameNumber;
+        if (InTest) {
+            InTest->frameNumber = frameNumber;
             frameNumber++;
         }
     }
 
     LOG_VERBOSE("ShowParms\n");
     ShowParms(&TestParms);
-    if (ReadTest)
-        ShowTransfer(ReadTest);
-    if (WriteTest)
-        ShowTransfer(WriteTest);
+    if (InTest)
+        ShowTransfer(InTest);
+    if (OutTest)
+        ShowTransfer(OutTest);
 
     bIsoAsap = (UCHAR)TestParms.UseIsoAsap;
-    if (ReadTest)
-        K.SetPipePolicy(TestParms.InterfaceHandle, ReadTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1,
+    if (InTest)
+        K.SetPipePolicy(TestParms.InterfaceHandle, InTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1,
                         &bIsoAsap);
-    if (WriteTest)
-        K.SetPipePolicy(TestParms.InterfaceHandle, WriteTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1,
+    if (OutTest)
+        K.SetPipePolicy(TestParms.InterfaceHandle, OutTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1,
                         &bIsoAsap);
 
-    if (ReadTest) {
-        LOG_VERBOSE("ResumeThread for ReadTest\n");
-        SetThreadPriority(ReadTest->ThreadHandle, TestParms.priority);
-        ResumeThread(ReadTest->ThreadHandle);
+    if (InTest) {
+        LOG_VERBOSE("ResumeThread for InTest\n");
+        SetThreadPriority(InTest->ThreadHandle, TestParms.priority);
+        ResumeThread(InTest->ThreadHandle);
     }
 
-    if (WriteTest) {
-        LOG_VERBOSE("ResumeThread for WriteTest\n");
-        SetThreadPriority(WriteTest->ThreadHandle, TestParms.priority);
-        ResumeThread(WriteTest->ThreadHandle);
+    if (OutTest) {
+        LOG_VERBOSE("ResumeThread for OutTest\n");
+        SetThreadPriority(OutTest->ThreadHandle, TestParms.priority);
+        ResumeThread(OutTest->ThreadHandle);
     }
 
     LOGMSG0("Press 'Q' to abort\n");
@@ -1898,80 +1900,80 @@ int main(int argc, char **argv) {
                 TestParms.isCancelled = TRUE;
             }
 
-            if ((ReadTest) && !ReadTest->isRunning) {
-                LOG_VERBOSE("ReadTest is not running\n");
+            if ((InTest) && !InTest->isRunning) {
+                LOG_VERBOSE("InTest is not running\n");
                 TestParms.isCancelled = TRUE;
                 break;
             }
 
-            if ((WriteTest) && !WriteTest->isRunning) {
-                LOG_VERBOSE("WriteTest is not running\n");
+            if ((OutTest) && !OutTest->isRunning) {
+                LOG_VERBOSE("OutTest is not running\n");
                 TestParms.isCancelled = TRUE;
                 break;
             }
         }
 
-        if (TestParms.Timer && ReadTest &&
-            ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec >= TestParms.Timer) {
+        if (TestParms.Timer && InTest &&
+            InTest->LastTick.tv_sec - InTest->StartTick.tv_sec >= TestParms.Timer) {
             LOG_VERBOSE("Over 60 seconds\n");
             DWORD elapsedSeconds =
-                ((ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec) +
-                 (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 100000000.0);
+                ((InTest->LastTick.tv_sec - InTest->StartTick.tv_sec) +
+                 (InTest->LastTick.tv_nsec - InTest->StartTick.tv_nsec) / 100000000.0);
             LOG_MSG("Elapsed Time %.2f  seconds\n", elapsedSeconds);
             TestParms.isUserAborted = TRUE;
             TestParms.isCancelled = TRUE;
         }
 
-        if (TestParms.Timer && WriteTest &&
-            WriteTest->LastTick.tv_sec - WriteTest->StartTick.tv_sec >= TestParms.Timer) {
+        if (TestParms.Timer && OutTest &&
+            OutTest->LastTick.tv_sec - OutTest->StartTick.tv_sec >= TestParms.Timer) {
             LOG_VERBOSE("Over 60 seconds\n");
             DWORD elapsedSeconds =
-                ((ReadTest->LastTick.tv_sec - ReadTest->StartTick.tv_sec) +
-                 (ReadTest->LastTick.tv_nsec - ReadTest->StartTick.tv_nsec) / 100000000.0);
+                ((InTest->LastTick.tv_sec - InTest->StartTick.tv_sec) +
+                 (InTest->LastTick.tv_nsec - InTest->StartTick.tv_nsec) / 100000000.0);
             LOG_MSG("Elapsed Time %.2f  seconds\n", elapsedSeconds);
             TestParms.isUserAborted = TRUE;
             TestParms.isCancelled = TRUE;
         }
 
         // if (TestParms.fileIO) {
-        //     if (ReadTest) {
-        //         FileIOBuffer(&TestParms, ReadTest);
+        //     if (InTest) {
+        //         FileIOBuffer(&TestParms, InTest);
         //     }
-        //     if (WriteTest) {
-        //         FileIOBuffer(&TestParms, WriteTest);
+        //     if (OutTest) {
+        //         FileIOBuffer(&TestParms, OutTest);
         //     }
         // }
 
         LOG_VERBOSE("ShowRunningStatus\n");
-        ShowRunningStatus(ReadTest, WriteTest);
+        ShowRunningStatus(InTest, OutTest);
         // Only one key at a time.
         while (_kbhit())
             _getch();
     }
 
     LOG_VERBOSE("WaitForTestTransfer\n");
-    WaitForTestTransfer(ReadTest, 1000);
-    if ((ReadTest) && ReadTest->isRunning) {
-        LOG_WARNING("Aborting Read Pipe 0x%02X..", ReadTest->Ep.PipeId);
-        K.AbortPipe(TestParms.InterfaceHandle, ReadTest->Ep.PipeId);
+    WaitForTestTransfer(InTest, 1000);
+    if ((InTest) && InTest->isRunning) {
+        LOG_WARNING("Aborting Read Pipe 0x%02X..", InTest->Ep.PipeId);
+        K.AbortPipe(TestParms.InterfaceHandle, InTest->Ep.PipeId);
     }
 
-    WaitForTestTransfer(WriteTest, 1000);
-    if ((WriteTest) && WriteTest->isRunning) {
-        LOG_WARNING("Aborting Write Pipe 0x%02X..", WriteTest->Ep.PipeId);
-        K.AbortPipe(TestParms.InterfaceHandle, WriteTest->Ep.PipeId);
+    WaitForTestTransfer(OutTest, 1000);
+    if ((OutTest) && OutTest->isRunning) {
+        LOG_WARNING("Aborting Write Pipe 0x%02X..", OutTest->Ep.PipeId);
+        K.AbortPipe(TestParms.InterfaceHandle, OutTest->Ep.PipeId);
     }
 
-    if ((ReadTest) && ReadTest->isRunning)
-        WaitForTestTransfer(ReadTest, INFINITE);
-    if ((WriteTest) && WriteTest->isRunning)
-        WaitForTestTransfer(WriteTest, INFINITE);
+    if ((InTest) && InTest->isRunning)
+        WaitForTestTransfer(InTest, INFINITE);
+    if ((OutTest) && OutTest->isRunning)
+        WaitForTestTransfer(OutTest, INFINITE);
 
     LOG_VERBOSE("Show Transfer\n");
-    if (ReadTest)
-        ShowTransfer(ReadTest);
-    if (WriteTest)
-        ShowTransfer(WriteTest);
+    if (InTest)
+        ShowTransfer(InTest);
+    if (OutTest)
+        ShowTransfer(OutTest);
 
     freopen("CON", "w", stdout);
     freopen("CON", "w", stderr);
@@ -2010,8 +2012,8 @@ Done:
 
     LOG_VERBOSE("Free TransferParam\n");
     LstK_Free(TestParms.DeviceList);
-    FreeTransferParam(&ReadTest);
-    FreeTransferParam(&WriteTest);
+    FreeTransferParam(&InTest);
+    FreeTransferParam(&OutTest);
 
     DeleteCriticalSection(&DisplayCriticalSection);
 
