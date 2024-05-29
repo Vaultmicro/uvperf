@@ -8,6 +8,12 @@
 #ifndef _LIBUSBK_H__
 #define _LIBUSBK_H__
 
+#ifdef _MSC_VER
+    #pragma warning(disable:4200)
+    #pragma warning(disable:4201)
+    #pragma warning(disable:4214) // named type definition in parentheses
+#endif
+
 #include "lusbk_shared.h"
 
 ///////////////////////////////////////////////////////////////////////
