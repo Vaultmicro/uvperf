@@ -1,12 +1,12 @@
 #include "transfer.h"
+#include "bench.h"
 #include "log.h"
 #include "utils.h"
-#include "bench.h"
 #include "uvperf.h"
 
-#define INC_ROLL(IncField, RollOverValue) \
-    if ((++IncField) >= RollOverValue) \
-        IncField = 0
+#define INC_ROLL(IncField, RollOverValue)                                                          \
+    if ((++IncField) >= RollOverValue)                                                             \
+    IncField = 0
 
 int VerifyData(PUVPERF_TRANSFER_PARAM transferParam, BYTE *data, INT dataLength) {
     WORD verifyDataSize = transferParam->TestParms->verifyBufferSize;
@@ -185,11 +185,15 @@ int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam, PUVPERF_TRANSFER_HANDLE 
             handle->ReturnCode = ret;
             goto Done;
         }
+        LOG_MSG("IsochResults: TotalPackets=%u GoodPackets=%u BadPackets=%u Length=%u\n",
+                handle->IsochResults.TotalPackets, handle->IsochResults.GoodPackets,
+                handle->IsochResults.BadPackets, handle->IsochResults.Length);
 
         if (transferParam->Ep.PipeType == UsbdPipeTypeIsochronous &&
             transferParam->Ep.PipeId & 0x80) {
             memset(&handle->IsochResults, 0, sizeof(handle->IsochResults));
             IsochK_EnumPackets(handle->IsochHandle, &IsoTransferCb, 0, &handle->IsochResults);
+
             transferParam->IsochResults.TotalPackets += handle->IsochResults.TotalPackets;
             transferParam->IsochResults.GoodPackets += handle->IsochResults.GoodPackets;
             transferParam->IsochResults.BadPackets += handle->IsochResults.BadPackets;
@@ -659,8 +663,13 @@ void GetAverageBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE *byteps) {
             (transferParam->LastTick.tv_nsec - transferParam->StartTick.tv_nsec) / 1000000000.0;
 
         *byteps = (DOUBLE)transferParam->TotalTransferred / elapsedSeconds;
-        if (transferParam->TotalTransferred == 0)
+        if (transferParam->TotalTransferred == 0) {
             *byteps = 0;
+        }
+        if (elapsedSeconds == 0) {
+            *byteps = 0;
+        }
+
     } else {
         *byteps = 0;
     }
@@ -788,4 +797,33 @@ BOOL WaitForTestTransfer(PUVPERF_TRANSFER_PARAM transferParam, UINT msToWait) {
     }
 
     return TRUE;
+}
+
+void ChangeAlternateSetting(KUSB_HANDLE handle, int interfaceNumber, int alternateSetting) {
+    BOOL success;
+    USB_INTERFACE_DESCRIPTOR interfaceDescriptor;
+    WINUSB_SETUP_PACKET setupPacket;
+
+    LOGMSG0("Changing alternate setting..\n");
+
+    success = UsbK_QueryInterfaceSettings(handle, 0, &interfaceDescriptor);
+    if (!success) {
+        LOG_ERROR("Failed to query interface settings\n");
+        return;
+    }
+
+    setupPacket.RequestType = 0x01;       // bmRequestType: 0x01 (standard request to interface)
+    setupPacket.Request = 0x0B;           // bRequest: SET_INTERFACE
+    setupPacket.Value = alternateSetting; // wValue: Alternate Setting
+    setupPacket.Index = interfaceNumber;  // wIndex: Interface Number
+    setupPacket.Length = 0;               // wLength: 0
+
+    success = UsbK_ControlTransfer(handle, setupPacket, NULL, 0, NULL, NULL);
+    if (!success) {
+        LOG_ERROR("Failed to set alternate setting\n");
+        return;
+    }
+
+    LOG_MSG("Successfully changed to alternate setting %d on interface %d\n", alternateSetting,
+            interfaceNumber);
 }
