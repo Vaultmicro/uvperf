@@ -33,6 +33,4 @@ void ShowTransfer(PUVPERF_TRANSFER_PARAM transferParam);
 
 BOOL WaitForTestTransfer(PUVPERF_TRANSFER_PARAM transferParam, UINT msToWait);
 
-void ChangeAlternateSetting(KUSB_HANDLE handle, int interfaceNumber, int alternateSetting);
-
 #endif // TRANSFER_H

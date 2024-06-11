@@ -72,10 +72,17 @@ int main(int argc, char **argv) {
 
     FileIOOpen(&TestParms);
 
-    // if (fetch_usb_descriptors(&TestParms) < 0) {
+    // if (open_device_with_libusb(&TestParms) < 0) {
     //     LOG_ERROR("Failed to bring endpoint descriptor using libusb library\n");
     // }
 
+    //TODO : press e : endpoint descriptor
+    //TODO : press i : interface descriptor
+    //TODO : press c : configuration descriptor
+    //TODO : press d : device descriptor
+    //TODO : press q : quit
+    //TODO : press t : transfer
+    
     LOG_VERBOSE("InitializeCriticalSection\n");
     InitializeCriticalSection(&DisplayCriticalSection);
 
@@ -189,17 +196,13 @@ int main(int argc, char **argv) {
         }
     }
 
-    // if (find_endpoint_descriptor(&TestParms) < 0) {
-    //     LOGERR0("Failed to find endpoint descriptor\n");
-    //     goto Final;
-    // }
-
     LOG_VERBOSE("ShowParms\n");
     ShowParms(&TestParms);
     if (InTest)
         ShowTransfer(InTest);
     if (OutTest)
         ShowTransfer(OutTest);
+
 
     bIsoAsap = (UCHAR)TestParms.UseIsoAsap;
     if (InTest)
@@ -208,12 +211,6 @@ int main(int argc, char **argv) {
     if (OutTest)
         K.SetPipePolicy(TestParms.InterfaceHandle, OutTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1,
                         &bIsoAsap);
-
-    if (InTest->Ep.PipeType == UsbdPipeTypeIsochronous ||
-        OutTest->Ep.PipeType == UsbdPipeTypeIsochronous) {
-        ChangeAlternateSetting(TestParms.InterfaceHandle,
-                               TestParms.InterfaceDescriptor.bInterfaceNumber, 1);
-    }
 
     if (InTest) {
         LOG_VERBOSE("ResumeThread for InTest\n");

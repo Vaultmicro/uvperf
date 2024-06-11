@@ -6,12 +6,10 @@
 #include "libusb.h"
 #include "libusbk.h"
 #include "uvperf.h"
-
-void convert_to_libusbk_endpoint_descriptor(const struct libusb_endpoint_descriptor *endpoint_desc,
-                                            USB_ENDPOINT_DESCRIPTOR *usbk_endpoint_desc);
+#include "log.h"
 
 int find_endpoint_descriptor(PUVPERF_PARAM TestParams);
 
-int fetch_usb_descriptors(PUVPERF_PARAM TestParams);
+int open_device_with_libusb(PUVPERF_PARAM TestParams);
 
 #endif /* USB_DESCRIPTOR_H */

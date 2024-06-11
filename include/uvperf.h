@@ -78,6 +78,7 @@ typedef struct _UVPERF_PARAM {
     int repeat;
     int fixedIsoPackets;
     int priority;
+    int num_intf;
     BOOL fileIO;
     BOOL ShowTransfer;
     BOOL useList;
@@ -95,6 +96,9 @@ typedef struct _UVPERF_PARAM {
     USB_CONFIGURATION_DESCRIPTOR ConfigDescriptor;
     struct libusb_config_descriptor *config;
     USB_INTERFACE_DESCRIPTOR InterfaceDescriptor;
+    struct libusb_interface_descriptor intferface_descs[3];
+    struct libusb_endpoint_descriptor endpoint_descs[10];
+    int num_ep;
     USB_ENDPOINT_DESCRIPTOR EndpointDescriptor;
     WINUSB_PIPE_INFORMATION_EX PipeInformation[32];
     BOOL isCancelled;

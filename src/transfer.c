@@ -798,32 +798,3 @@ BOOL WaitForTestTransfer(PUVPERF_TRANSFER_PARAM transferParam, UINT msToWait) {
 
     return TRUE;
 }
-
-void ChangeAlternateSetting(KUSB_HANDLE handle, int interfaceNumber, int alternateSetting) {
-    BOOL success;
-    USB_INTERFACE_DESCRIPTOR interfaceDescriptor;
-    WINUSB_SETUP_PACKET setupPacket;
-
-    LOGMSG0("Changing alternate setting..\n");
-
-    success = UsbK_QueryInterfaceSettings(handle, 0, &interfaceDescriptor);
-    if (!success) {
-        LOG_ERROR("Failed to query interface settings\n");
-        return;
-    }
-
-    setupPacket.RequestType = 0x01;       // bmRequestType: 0x01 (standard request to interface)
-    setupPacket.Request = 0x0B;           // bRequest: SET_INTERFACE
-    setupPacket.Value = alternateSetting; // wValue: Alternate Setting
-    setupPacket.Index = interfaceNumber;  // wIndex: Interface Number
-    setupPacket.Length = 0;               // wLength: 0
-
-    success = UsbK_ControlTransfer(handle, setupPacket, NULL, 0, NULL, NULL);
-    if (!success) {
-        LOG_ERROR("Failed to set alternate setting\n");
-        return;
-    }
-
-    LOG_MSG("Successfully changed to alternate setting %d on interface %d\n", alternateSetting,
-            interfaceNumber);
-}

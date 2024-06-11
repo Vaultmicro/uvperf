@@ -107,7 +107,6 @@ int GetDeviceInfoFromList(PUVPERF_PARAM TestParms) {
     UCHAR selection;
     UCHAR count = 0;
     KLST_DEVINFO_HANDLE deviceInfo = NULL;
-    
 
     LstK_MoveReset(TestParms->DeviceList);
 
@@ -137,7 +136,7 @@ int GetDeviceInfoFromList(PUVPERF_PARAM TestParms) {
         int validSelection = 0;
 
         do {
-            LOG_MSG("Select device (1-%u): ", count);
+            LOG_MSG("Select Interface (1-%u): ", count);
             while (_kbhit()) {
                 _getch();
             }
@@ -220,7 +219,6 @@ int GetEndpointFromList(PUVPERF_PARAM TestParms) {
                 }
 
                 if (pipeIndex == 0) {
-                    LOGERR0("No pipes available.\n");
                     altSetting++;
                     continue;
                 }
@@ -251,6 +249,9 @@ int GetEndpointFromList(PUVPERF_PARAM TestParms) {
 
                 validInput = 1;
                 break;
+            }
+            if (pipeIndex == 0) {
+                LOGERR0("No pipes available.\n");
             }
             if (validInput == 1) {
                 break;
@@ -434,18 +435,20 @@ void ShowParms(PUVPERF_PARAM TestParms) {
     LOG_MSG("\tTimeout:                 :  %d\n", TestParms->timeout);
     LOG_MSG("\tBuffer Length            :  %d\n", TestParms->bufferlength);
     LOG_MSG("\tRepeat:                  :  %d\n", TestParms->repeat);
-//     LOG_MSG("------------------------------------------------\n");
-//     LOG_MSG("Endpoint addr              :  0x%02X\n",
-//             TestParms->EndpointDescriptor.bEndpointAddress);
-//     LOG_MSG("Endpoint Type              :  %s, %s\n", TestParms->EndpointDescriptor.bDescriptorType,
-//             (TestParms->EndpointDescriptor.bEndpointAddress & USB_ENDPOINT_DIRECTION_MASK) ? "In"
-//                                                                                            : "Out");
-//     LOG_MSG("Endpoint Max Packet Size   :  %d\n", TestParms->EndpointDescriptor.wMaxPacketSize);
-//     LOG_MSG("Endpoint MC                :  %d\n",
-//             (TestParms->EndpointDescriptor.wMaxPacketSize & 0x1800) >> 11);
-//     LOG_MSG("Endpoint Interval          :  %d\n", TestParms->EndpointDescriptor.bInterval);
+    // LOG_MSG("------------------------------------------------\n");
+    // LOG_MSG("Endpoint addr              :  0x%02X\n",
+    //         TestParms->EndpointDescriptor.bEndpointAddress);
+    // LOG_MSG("Endpoint Type              :  %s, %s\n",
+    // TestParms->EndpointDescriptor.bDescriptorType,
+    //         (TestParms->EndpointDescriptor.bEndpointAddress & USB_ENDPOINT_DIRECTION_MASK) ? "In"
+    //                                                                                        :
+    //                                                                                        "Out");
+    // LOG_MSG("Endpoint Max Packet Size   :  %d\n", TestParms->EndpointDescriptor.wMaxPacketSize);
+    // LOG_MSG("Endpoint MC                :  %d\n",
+    //         (TestParms->EndpointDescriptor.wMaxPacketSize & 0x1800) >> 11);
+    // LOG_MSG("Endpoint Interval          :  %d\n", TestParms->EndpointDescriptor.bInterval);
 
-//     LOG_MSG("\n");
+    LOG_MSG("\n");
 }
 
 void FileIOOpen(PUVPERF_PARAM TestParms) {
