@@ -3,6 +3,7 @@
 #include "log.h"
 #include "utils.h"
 #include "uvperf.h"
+#include "chrono_time.h"
 
 #define INC_ROLL(IncField, RollOverValue)                                                          \
     if ((++IncField) >= RollOverValue)                                                             \
@@ -392,7 +393,7 @@ DWORD TransferThread(PUVPERF_TRANSFER_PARAM transferParam) {
         EnterCriticalSection(&DisplayCriticalSection);
 
         if (!transferParam->StartTick.tv_nsec && transferParam->Packets >= 0) {
-            clock_gettime(CLOCK_MONOTONIC, &transferParam->StartTick);
+            get_time(&transferParam->StartTick);
             transferParam->LastStartTick = transferParam->StartTick;
             transferParam->LastTick = transferParam->StartTick;
 
@@ -404,8 +405,7 @@ DWORD TransferThread(PUVPERF_TRANSFER_PARAM transferParam) {
                 transferParam->LastStartTick = transferParam->LastTick;
                 transferParam->LastTransferred = 0;
             }
-            clock_gettime(CLOCK_MONOTONIC, &transferParam->LastTick);
-
+            get_time(&transferParam->LastTick);
             transferParam->LastTransferred += ret;
             transferParam->TotalTransferred += ret;
             transferParam->Packets++;

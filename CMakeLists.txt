@@ -22,6 +22,7 @@ set(SOURCE_FILES
     src/transfer.c
     src/utils.c
     src/usb_descriptor.c
+    src/chrono_time.cpp
 )
 
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
