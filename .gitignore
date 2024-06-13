@@ -7,7 +7,6 @@
 *.o
 *.obj
 build/
-lib/
 
 ### C ###
 # Prerequisites
