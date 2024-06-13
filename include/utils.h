@@ -19,11 +19,11 @@ int GetEndpointFromList(PUVPERF_PARAM TestParms);
 
 int GetDeviceParam(PUVPERF_PARAM TestParms);
 
-void ShowParms(PUVPERF_PARAM TestParms);
+void ShowParms(PUVPERF_TRANSFER_PARAM TestParms);
 
 void FileIOOpen(PUVPERF_PARAM TestParms);
 
-void FileIOLog(PUVPERF_PARAM TestParms);
+void FileIOLog(PUVPERF_TRANSFER_PARAM transferParamTestParms);
 
 void FileIOClose(PUVPERF_PARAM TestParms);
 

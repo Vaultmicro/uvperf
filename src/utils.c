@@ -124,7 +124,7 @@ int GetDeviceInfoFromList(PUVPERF_PARAM TestParms) {
                     GetDrvIdString(deviceInfo->DriverID));
             count++;
 
-            LibK_SetContext(deviceInfo, KLIB_HANDLE_TYPE_LSTINFOK, (KLIB_USER_CONTEXT)TRUE);
+            LibK_SetContext(deviceInfo, KLIB_HANDLE_TYPE_LSTINFOK, (KLIB_USER_CONTEXT)FALSE);
         }
 
         if (!count) {
@@ -150,7 +150,7 @@ int GetDeviceInfoFromList(PUVPERF_PARAM TestParms) {
                 count = 0;
                 while (LstK_MoveNext(TestParms->DeviceList, &deviceInfo) && ++count != selection) {
                     LibK_SetContext(deviceInfo, KLIB_HANDLE_TYPE_LSTINFOK,
-                                    (KLIB_USER_CONTEXT)FALSE);
+                                    (KLIB_USER_CONTEXT)TRUE);
                 }
 
                 if (!deviceInfo) {
@@ -329,7 +329,7 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char **argv) {
     int status = 0;
 
     int c;
-    while ((c = getopt(argc, argv, "Vv:p:i:a:e:m:t:fb:l:w:r:SRWL")) != -1) {
+    while ((c = getopt(argc, argv, "Vv:p:i:a:e:m:t:fc:b:l:w:r:SRWL")) != -1) {
         switch (c) {
         case 'V':
             verbose = TRUE;
@@ -422,9 +422,16 @@ int ParseArgs(PUVPERF_PARAM TestParms, int argc, char **argv) {
     return status;
 }
 
-void ShowParms(PUVPERF_PARAM TestParms) {
+void ShowParms(PUVPERF_TRANSFER_PARAM transferParam) {
+    PUVPERF_PARAM TestParms = transferParam->TestParms;
+
     if (!TestParms)
         return;
+
+    uint8_t mc = (transferParam->Ep.MaximumPacketSize / 1024 == 0
+                      ? 0
+                      : (transferParam->Ep.MaximumPacketSize / 1024) - 1);
+    uint32_t mps = (mc == 0) ? transferParam->Ep.MaximumPacketSize : (mc << 11) + 1024;
 
     LOG_MSG("\tDriver                   :  %s\n",
             GetDrvIdString(TestParms->SelectedDeviceProfile->DriverID));
@@ -435,18 +442,14 @@ void ShowParms(PUVPERF_PARAM TestParms) {
     LOG_MSG("\tTimeout:                 :  %d\n", TestParms->timeout);
     LOG_MSG("\tBuffer Length            :  %d\n", TestParms->bufferlength);
     LOG_MSG("\tRepeat:                  :  %d\n", TestParms->repeat);
-    // LOG_MSG("------------------------------------------------\n");
-    // LOG_MSG("Endpoint addr              :  0x%02X\n",
-    //         TestParms->EndpointDescriptor.bEndpointAddress);
-    // LOG_MSG("Endpoint Type              :  %s, %s\n",
-    // TestParms->EndpointDescriptor.bDescriptorType,
-    //         (TestParms->EndpointDescriptor.bEndpointAddress & USB_ENDPOINT_DIRECTION_MASK) ? "In"
-    //                                                                                        :
-    //                                                                                        "Out");
-    // LOG_MSG("Endpoint Max Packet Size   :  %d\n", TestParms->EndpointDescriptor.wMaxPacketSize);
-    // LOG_MSG("Endpoint MC                :  %d\n",
-    //         (TestParms->EndpointDescriptor.wMaxPacketSize & 0x1800) >> 11);
-    // LOG_MSG("Endpoint Interval          :  %d\n", TestParms->EndpointDescriptor.bInterval);
+    LOG_MSG("------------------------------------------------\n");
+    LOG_MSG("Endpoint addr              :  0x%02X\n", transferParam->Ep.PipeId);
+    LOG_MSG("Endpoint Type              :  %s, %s\n",
+            EndpointTypeDisplayString[transferParam->Ep.PipeType],
+            (transferParam->Ep.PipeId & USB_ENDPOINT_DIRECTION_MASK) ? "In" : "Out");
+    LOG_MSG("Endpoint MC                :  %d\n", mc);
+    LOG_MSG("Endpoint Max Packet Size   :  %d\n", mps);
+    LOG_MSG("Endpoint Interval          :  %d\n", transferParam->Ep.Interval);
 
     LOG_MSG("\n");
 }
@@ -472,7 +475,9 @@ void FileIOOpen(PUVPERF_PARAM TestParms) {
     }
 }
 
-void FileIOLog(PUVPERF_PARAM TestParms) {
+void FileIOLog(PUVPERF_TRANSFER_PARAM transferParam) {
+    PUVPERF_PARAM TestParms = transferParam->TestParms;
+
     if (!TestParms->fileIO) {
         return;
     }
@@ -480,7 +485,7 @@ void FileIOLog(PUVPERF_PARAM TestParms) {
     freopen(TestParms->LogFileName, "a+", stdout);
     freopen(TestParms->LogFileName, "a+", stderr);
 
-    ShowParms(TestParms);
+    ShowParms(transferParam);
 }
 
 void FileIOClose(PUVPERF_PARAM TestParms) {

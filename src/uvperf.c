@@ -76,13 +76,13 @@ int main(int argc, char **argv) {
     //     LOG_ERROR("Failed to bring endpoint descriptor using libusb library\n");
     // }
 
-    //TODO : press e : endpoint descriptor
-    //TODO : press i : interface descriptor
-    //TODO : press c : configuration descriptor
-    //TODO : press d : device descriptor
-    //TODO : press q : quit
-    //TODO : press t : transfer
-    
+    // TODO : press e : endpoint descriptor
+    // TODO : press i : interface descriptor
+    // TODO : press c : configuration descriptor
+    // TODO : press d : device descriptor
+    // TODO : press q : quit
+    // TODO : press t : transfer
+
     LOG_VERBOSE("InitializeCriticalSection\n");
     InitializeCriticalSection(&DisplayCriticalSection);
 
@@ -103,21 +103,25 @@ int main(int argc, char **argv) {
     if (TestParms.list) {
         LOG_VERBOSE("GetDeviceFromList\n");
         if (GetDeviceInfoFromList(&TestParms) < 0) {
+            LOGERR0("Failed to get device from list\n");
             goto Final;
         }
 
         if (GetEndpointFromList(&TestParms) < 0) {
+            LOGERR0("Failed to get endpoint from list\n");
             goto Final;
         }
 
     } else {
         LOG_VERBOSE("GetDeviceParam\n");
         if (GetDeviceParam(&TestParms) < 0) {
+            LOGERR0("Failed to get device param\n");
             goto Final;
         }
 
         LOG_VERBOSE("Open Bench\n");
         if (!Bench_Open(&TestParms)) {
+            LOGERR0("Failed to open bench\n");
             goto Final;
         }
     }
@@ -125,8 +129,10 @@ int main(int argc, char **argv) {
     if (TestParms.TestType & TestTypeIn) {
         LOG_VERBOSE("CreateTransferParam for InTest\n");
         InTest = CreateTransferParam(&TestParms, TestParms.endpoint | USB_ENDPOINT_DIRECTION_MASK);
-        if (!InTest)
+        if (!InTest) {
+            LOGERR0("Failed to create transfer param for InTest\n");
             goto Final;
+        }
         if (TestParms.UseRawIO != 0xFF) {
             if (!K.SetPipePolicy(TestParms.InterfaceHandle, InTest->Ep.PipeId, RAW_IO, 1,
                                  &TestParms.UseRawIO)) {
@@ -197,12 +203,14 @@ int main(int argc, char **argv) {
     }
 
     LOG_VERBOSE("ShowParms\n");
-    ShowParms(&TestParms);
-    if (InTest)
+    if (InTest) {
+        ShowParms(InTest);
         ShowTransfer(InTest);
-    if (OutTest)
+    }
+    if (OutTest) {
+        ShowParms(OutTest);
         ShowTransfer(OutTest);
-
+    }
 
     bIsoAsap = (UCHAR)TestParms.UseIsoAsap;
     if (InTest)
@@ -216,19 +224,20 @@ int main(int argc, char **argv) {
         LOG_VERBOSE("ResumeThread for InTest\n");
         SetThreadPriority(InTest->ThreadHandle, TestParms.priority);
         ResumeThread(InTest->ThreadHandle);
+        FileIOLog(InTest);
     }
 
     if (OutTest) {
         LOG_VERBOSE("ResumeThread for OutTest\n");
         SetThreadPriority(OutTest->ThreadHandle, TestParms.priority);
         ResumeThread(OutTest->ThreadHandle);
+        FileIOLog(OutTest);
     }
 
     LOGMSG0("Press 'Q' to abort\n");
 
-    FileIOLog(&TestParms);
-
-    while (!TestParms.isCancelled) {
+    while ((InTest && !InTest->TestParms->isCancelled) ||
+           (OutTest && !OutTest->TestParms->isCancelled)) {
         Sleep(TestParms.refresh);
         if (_kbhit()) {
             key = _getch();
@@ -284,13 +293,13 @@ int main(int argc, char **argv) {
     LOG_VERBOSE("WaitForTestTransfer\n");
     WaitForTestTransfer(InTest, 1000);
     if ((InTest) && InTest->isRunning) {
-        LOG_WARNING("Aborting Read Pipe 0x%02X..", InTest->Ep.PipeId);
+        LOG_WARNING("Aborting Read Pipe 0x%02X..\n", InTest->Ep.PipeId);
         K.AbortPipe(TestParms.InterfaceHandle, InTest->Ep.PipeId);
     }
 
     WaitForTestTransfer(OutTest, 1000);
     if ((OutTest) && OutTest->isRunning) {
-        LOG_WARNING("Aborting Write Pipe 0x%02X..", OutTest->Ep.PipeId);
+        LOG_WARNING("Aborting Write Pipe 0x%02X..\n", OutTest->Ep.PipeId);
         K.AbortPipe(TestParms.InterfaceHandle, OutTest->Ep.PipeId);
     }
 

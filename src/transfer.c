@@ -1,9 +1,9 @@
 #include "transfer.h"
 #include "bench.h"
+#include "chrono_time.h"
 #include "log.h"
 #include "utils.h"
 #include "uvperf.h"
-#include "chrono_time.h"
 
 #define INC_ROLL(IncField, RollOverValue)                                                          \
     if ((++IncField) >= RollOverValue)                                                             \
@@ -91,6 +91,7 @@ BOOL WINAPI IsoTransferCb(_in unsigned int packetIndex, _ref unsigned int *offse
         if (*length) {
             isochResults->GoodPackets++;
             isochResults->Length += *length;
+            isochResults->Length = 0;
         }
     }
     isochResults->TotalPackets++;
@@ -143,7 +144,7 @@ int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam, PUVPERF_TRANSFER_HANDLE 
         }
 
         transferErrorCode = GetLastError();
-
+        // isochread and ishchwrite return always false
         if (!success && transferErrorCode == ERROR_IO_PENDING) {
             transferErrorCode = ERROR_SUCCESS;
             success = TRUE;
@@ -169,10 +170,17 @@ int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam, PUVPERF_TRANSFER_HANDLE 
             WAIT_OBJECT_0) {
             if (!transferParam->TestParms->isUserAborted) {
                 ret = GetLastError();
-            } else
+            } else {
                 ret = -(int)GetLastError();
+            }
+
+            LOG_ERROR("WaitForSingleObject failed, ret=%d, error message : %s\n", ret,
+                      strerror(ret));
 
             handle->ReturnCode = ret;
+            ret = -handle->ReturnCode;
+            transferErrorCode = -1;
+            success = FALSE;
             goto Done;
         }
 
@@ -180,15 +188,19 @@ int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam, PUVPERF_TRANSFER_HANDLE 
                                    &transferred, FALSE)) {
             if (!transferParam->TestParms->isUserAborted) {
                 ret = GetLastError();
-            } else
+            } else {
                 ret = -(int)GetLastError();
+            }
+
+            LOG_ERROR("GetOverlappedResult failed, ret=%d, error message : %s\n", ret,
+                      strerror(ret));
 
             handle->ReturnCode = ret;
+            ret = -handle->ReturnCode;
+            transferErrorCode = -1;
+            success = FALSE;
             goto Done;
         }
-        LOG_MSG("IsochResults: TotalPackets=%u GoodPackets=%u BadPackets=%u Length=%u\n",
-                handle->IsochResults.TotalPackets, handle->IsochResults.GoodPackets,
-                handle->IsochResults.BadPackets, handle->IsochResults.Length);
 
         if (transferParam->Ep.PipeType == UsbdPipeTypeIsochronous &&
             transferParam->Ep.PipeId & 0x80) {
@@ -369,7 +381,7 @@ DWORD TransferThread(PUVPERF_TRANSFER_PARAM transferParam) {
                           transferParam->RunningErrorCount, transferParam->TestParms->retry + 1,
                           ret, strerror(ret));
                 K.ResetPipe(transferParam->TestParms->InterfaceHandle, transferParam->Ep.PipeId);
-
+                transferParam->TestParms->isCancelled = TRUE;
                 if (transferParam->RunningErrorCount > transferParam->TestParms->retry)
                     break;
             }
@@ -535,109 +547,107 @@ PUVPERF_TRANSFER_PARAM CreateTransferParam(PUVPERF_PARAM TestParam, int endpoint
     allocSize = sizeof(UVPERF_TRANSFER_PARAM) + (TestParam->bufferlength * TestParam->bufferCount);
     transferParam = (PUVPERF_TRANSFER_PARAM)malloc(allocSize);
 
-    if (transferParam) {
-        UINT numIsoPackets;
-        memset(transferParam, 0, allocSize);
-        transferParam->TestParms = TestParam;
+    if (!transferParam) {
+        goto Done;
+    }
 
-        memcpy(&transferParam->Ep, pipeInfo, sizeof(transferParam->Ep));
-        transferParam->HasEpCompanionDescriptor = K.GetSuperSpeedPipeCompanionDescriptor(
-            TestParam->InterfaceHandle, TestParam->InterfaceDescriptor.bAlternateSetting,
-            (UCHAR)pipeIndex, &transferParam->EpCompanionDescriptor);
+    UINT numIsoPackets;
+    memset(transferParam, 0, allocSize);
+    transferParam->TestParms = TestParam;
 
-        if (ENDPOINT_TYPE(transferParam) == USB_ENDPOINT_TYPE_ISOCHRONOUS) {
-            transferParam->TestParms->TransferMode = TRANSFER_MODE_ASYNC;
+    memcpy(&transferParam->Ep, pipeInfo, sizeof(transferParam->Ep));
+    transferParam->HasEpCompanionDescriptor = K.GetSuperSpeedPipeCompanionDescriptor(
+        TestParam->InterfaceHandle, TestParam->InterfaceDescriptor.bAlternateSetting,
+        (UCHAR)pipeIndex, &transferParam->EpCompanionDescriptor);
 
-            if (!transferParam->Ep.MaximumBytesPerInterval) {
-                LOG_ERROR(
-                    "Unable to determine 'MaximumBytesPerInterval' for isochronous pipe %02X\n",
-                    transferParam->Ep.PipeId);
-                LOGERR0("- Device firmware may be incorrectly configured.");
-                FreeTransferParam(&transferParam);
-                goto Done;
-            }
-            numIsoPackets =
-                transferParam->TestParms->bufferlength / transferParam->Ep.MaximumBytesPerInterval;
-            transferParam->numberOFIsoPackets = numIsoPackets;
-            if (numIsoPackets == 0 || ((numIsoPackets % 8)) ||
-                transferParam->TestParms->bufferlength %
-                    transferParam->Ep.MaximumBytesPerInterval) {
-                const UINT minBufferSize = transferParam->Ep.MaximumBytesPerInterval * 8;
-                LOG_ERROR("Buffer size is not correct for isochronous pipe 0x%02X\n",
-                          transferParam->Ep.PipeId);
-                LOG_ERROR("- Buffer size must be an interval of %u\n", minBufferSize);
-                FreeTransferParam(&transferParam);
-                goto Done;
-            }
+    if (ENDPOINT_TYPE(transferParam) == USB_ENDPOINT_TYPE_ISOCHRONOUS) {
+        transferParam->TestParms->TransferMode = TRANSFER_MODE_ASYNC;
 
-            for (bufferIndex = 0; bufferIndex < transferParam->TestParms->bufferCount;
-                 bufferIndex++) {
-                transferParam->TransferHandles[bufferIndex].Overlapped.hEvent =
-                    CreateEvent(NULL, TRUE, FALSE, NULL);
-
-                transferParam->TransferHandles[bufferIndex].Data =
-                    transferParam->Buffer + (bufferIndex * transferParam->TestParms->bufferlength);
-
-                if (!IsochK_Init(&transferParam->TransferHandles[bufferIndex].IsochHandle,
-                                 TestParam->InterfaceHandle, transferParam->Ep.PipeId,
-                                 numIsoPackets, transferParam->TransferHandles[bufferIndex].Data,
-                                 transferParam->TestParms->bufferlength)) {
-                    DWORD ec = GetLastError();
-
-                    LOG_ERROR("IsochK_Init failed for isochronous pipe %02X\n",
-                              transferParam->Ep.PipeId);
-                    LOG_ERROR("- ErrorCode = %u (%s)\n", ec, strerror(ec));
-                    FreeTransferParam(&transferParam);
-                    goto Done;
-                }
-
-                if (!IsochK_SetPacketOffsets(
-                        transferParam->TransferHandles[bufferIndex].IsochHandle,
-                        transferParam->Ep.MaximumBytesPerInterval)) {
-                    DWORD ec = GetLastError();
-
-                    LOG_ERROR("IsochK_SetPacketOffsets failed for isochronous pipe %02X\n",
-                              transferParam->Ep.PipeId);
-                    LOG_ERROR("- ErrorCode = %u (%s)\n", ec, strerror(ec));
-                    FreeTransferParam(&transferParam);
-                    goto Done;
-                }
-            }
+        if (!transferParam->Ep.MaximumBytesPerInterval) {
+            LOG_ERROR("Unable to determine 'MaximumBytesPerInterval' for isochronous pipe %02X\n",
+                      transferParam->Ep.PipeId);
+            LOGERR0("- Device firmware may be incorrectly configured.");
+            FreeTransferParam(&transferParam);
+            goto Done;
         }
-
-        transferParam->ThreadHandle =
-            CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)TransferThread, transferParam,
-                         CREATE_SUSPENDED, &transferParam->ThreadId);
-
-        if (!transferParam->ThreadHandle) {
-            LOGERR0("failed creating thread!\n");
+        numIsoPackets =
+            transferParam->TestParms->bufferlength / transferParam->Ep.MaximumBytesPerInterval;
+        transferParam->numberOFIsoPackets = numIsoPackets;
+        if (numIsoPackets == 0 || ((numIsoPackets % 8)) ||
+            transferParam->TestParms->bufferlength % transferParam->Ep.MaximumBytesPerInterval) {
+            const UINT minBufferSize = transferParam->Ep.MaximumBytesPerInterval * 8;
+            LOG_ERROR("Buffer size is not correct for isochronous pipe 0x%02X\n",
+                      transferParam->Ep.PipeId);
+            LOG_ERROR("- Buffer size must be an interval of %u\n", minBufferSize);
             FreeTransferParam(&transferParam);
             goto Done;
         }
 
-        if (transferParam->TestParms->TestType == TestTypeLoop &&
-            USB_ENDPOINT_DIRECTION_OUT(pipeInfo->PipeId)) {
-            BYTE indexC = 0;
-            INT bufferIndex = 0;
-            WORD dataIndex;
-            INT packetIndex;
-            INT packetCount = ((transferParam->TestParms->bufferCount * TestParam->readlenth) /
-                               pipeInfo->MaximumPacketSize);
-            for (packetIndex = 0; packetIndex < packetCount; packetIndex++) {
-                indexC = 2;
-                for (dataIndex = 0; dataIndex < pipeInfo->MaximumPacketSize; dataIndex++) {
-                    if (dataIndex == 0)
-                        transferParam->Buffer[bufferIndex] = 0;
-                    else if (dataIndex == 1)
-                        transferParam->Buffer[bufferIndex] = packetIndex & 0xFF;
-                    else
-                        transferParam->Buffer[bufferIndex] = indexC++;
+        for (bufferIndex = 0; bufferIndex < transferParam->TestParms->bufferCount; bufferIndex++) {
+            transferParam->TransferHandles[bufferIndex].Overlapped.hEvent =
+                CreateEvent(NULL, TRUE, FALSE, NULL);
 
-                    if (indexC == 0)
-                        indexC = 1;
+            transferParam->TransferHandles[bufferIndex].Data =
+                transferParam->Buffer + (bufferIndex * transferParam->TestParms->bufferlength);
 
-                    bufferIndex++;
-                }
+            if (!IsochK_Init(&transferParam->TransferHandles[bufferIndex].IsochHandle,
+                             TestParam->InterfaceHandle, transferParam->Ep.PipeId, numIsoPackets,
+                             transferParam->TransferHandles[bufferIndex].Data,
+                             transferParam->TestParms->bufferlength)) {
+                DWORD ec = GetLastError();
+
+                LOG_ERROR("IsochK_Init failed for isochronous pipe %02X\n",
+                          transferParam->Ep.PipeId);
+                LOG_ERROR("- ErrorCode = %u (%s)\n", ec, strerror(ec));
+                FreeTransferParam(&transferParam);
+                goto Done;
+            }
+
+            if (!IsochK_SetPacketOffsets(transferParam->TransferHandles[bufferIndex].IsochHandle,
+                                         transferParam->Ep.MaximumBytesPerInterval)) {
+                DWORD ec = GetLastError();
+
+                LOG_ERROR("IsochK_SetPacketOffsets failed for isochronous pipe %02X\n",
+                          transferParam->Ep.PipeId);
+                LOG_ERROR("- ErrorCode = %u (%s)\n", ec, strerror(ec));
+                FreeTransferParam(&transferParam);
+                goto Done;
+            }
+        }
+    }
+
+    transferParam->ThreadHandle =
+        CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)TransferThread, transferParam,
+                     CREATE_SUSPENDED, &transferParam->ThreadId);
+
+    if (!transferParam->ThreadHandle) {
+        LOGERR0("failed creating thread!\n");
+        FreeTransferParam(&transferParam);
+        goto Done;
+    }
+
+    if (transferParam->TestParms->TestType == TestTypeLoop &&
+        USB_ENDPOINT_DIRECTION_OUT(pipeInfo->PipeId)) {
+        BYTE indexC = 0;
+        INT bufferIndex = 0;
+        WORD dataIndex;
+        INT packetIndex;
+        INT packetCount = ((transferParam->TestParms->bufferCount * TestParam->readlenth) /
+                           pipeInfo->MaximumPacketSize);
+        for (packetIndex = 0; packetIndex < packetCount; packetIndex++) {
+            indexC = 2;
+            for (dataIndex = 0; dataIndex < pipeInfo->MaximumPacketSize; dataIndex++) {
+                if (dataIndex == 0)
+                    transferParam->Buffer[bufferIndex] = 0;
+                else if (dataIndex == 1)
+                    transferParam->Buffer[bufferIndex] = packetIndex & 0xFF;
+                else
+                    transferParam->Buffer[bufferIndex] = indexC++;
+
+                if (indexC == 0)
+                    indexC = 1;
+
+                bufferIndex++;
             }
         }
     }
@@ -702,6 +712,11 @@ void ShowTransfer(PUVPERF_TRANSFER_PARAM transferParam) {
     if (!transferParam)
         return;
 
+    uint8_t mc = (transferParam->Ep.MaximumPacketSize / 1024 == 0
+                      ? 0
+                      : (transferParam->Ep.MaximumPacketSize / 1024) - 1);
+    uint32_t mps = (mc == 0) ? transferParam->Ep.MaximumPacketSize : (mc << 11) + 1024;
+
     if (transferParam->HasEpCompanionDescriptor) {
         if (transferParam->EpCompanionDescriptor.wBytesPerInterval) {
             if (transferParam->Ep.PipeType == UsbdPipeTypeIsochronous) {
@@ -727,16 +742,15 @@ void ShowTransfer(PUVPERF_TRANSFER_PARAM transferParam) {
                         transferParam->Ep.MaximumBytesPerInterval);
             }
         } else {
-            LOG_MSG("%s %s Ep0x%02X Maximum Packet Size:%d\n",
+            LOG_MSG("%s %s Ep0x%02X MC : %d, Maximum Packet Size:%d\n",
                     EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
-                    TRANSFER_DISPLAY(transferParam, "in", "out"), transferParam->Ep.PipeId,
-                    transferParam->Ep.MaximumPacketSize);
+                    TRANSFER_DISPLAY(transferParam, "in", "out"), transferParam->Ep.PipeId, mc,
+                    mps);
         }
     } else {
-        LOG_MSG("%s %s Ep0x%02X Maximum Packet Size: %d\n",
+        LOG_MSG("%s %s Ep0x%02X MC : %d, Maximum Packet Size: %d\n",
                 EndpointTypeDisplayString[ENDPOINT_TYPE(transferParam)],
-                TRANSFER_DISPLAY(transferParam, "in", "out"), transferParam->Ep.PipeId,
-                transferParam->Ep.MaximumPacketSize);
+                TRANSFER_DISPLAY(transferParam, "in", "out"), transferParam->Ep.PipeId, mc, mps);
     }
 
     if (transferParam->StartTick.tv_nsec) {
@@ -775,8 +789,14 @@ void ShowTransfer(PUVPERF_TRANSFER_PARAM transferParam) {
 
 BOOL WaitForTestTransfer(PUVPERF_TRANSFER_PARAM transferParam, UINT msToWait) {
     DWORD exitCode;
+    uint8_t errorCount = 0;
 
     while (transferParam) {
+        if (errorCount >= 10) {
+            LOG_ERROR("Too many errors, exiting..\n");
+            return FALSE;
+        }
+
         if (!transferParam->isRunning) {
             if (GetExitCodeThread(transferParam->ThreadHandle, &exitCode)) {
                 LOG_MSG("stopped Ep0x%02X thread \tExitCode=%d\n", transferParam->Ep.PipeId,
@@ -794,6 +814,8 @@ BOOL WaitForTestTransfer(PUVPERF_TRANSFER_PARAM transferParam, UINT msToWait) {
             if ((msToWait - 100) == 0 || (msToWait - 100) > msToWait)
                 return FALSE;
         }
+
+        errorCount++;
     }
 
     return TRUE;
