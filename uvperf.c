@@ -1465,7 +1465,7 @@ void GetAverageBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE *byteps) {
             (transferParam->LastTick.tv_nsec - transferParam->StartTick.tv_nsec) / 1000000000.0;
 
         *byteps = (DOUBLE)transferParam->TotalTransferred / elapsedSeconds;
-        if(transferParam->TotalTransferred == 0)
+        if (transferParam->TotalTransferred == 0)
             *byteps = 0;
     } else {
         *byteps = 0;
@@ -1735,7 +1735,7 @@ int main(int argc, char **argv) {
                     }
 
                     if (pipeIndex == 0) {
-                        LOGERR0("No pipes available.\n");
+                        altSetting++;
                         continue;
                     }
 
@@ -1767,6 +1767,14 @@ int main(int argc, char **argv) {
                     validInput = 1;
                     break;
                 }
+
+                if (pipeIndex == 0) {
+                    LOGERR0("No pipes found.\n");
+                    continue;
+                }
+                if (validInput = 1) {
+                    break;
+                }
             }
         } while (!validInput);
     } else {
@@ -1783,8 +1791,7 @@ int main(int argc, char **argv) {
 
     if (TestParms.TestType & TestTypeIn) {
         LOG_VERBOSE("CreateTransferParam for InTest\n");
-        InTest =
-            CreateTransferParam(&TestParms, TestParms.endpoint | USB_ENDPOINT_DIRECTION_MASK);
+        InTest = CreateTransferParam(&TestParms, TestParms.endpoint | USB_ENDPOINT_DIRECTION_MASK);
         if (!InTest)
             goto Done;
         if (TestParms.UseRawIO != 0xFF) {
