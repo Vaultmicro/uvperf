@@ -2,7 +2,6 @@
 #include "bench.h"
 #include "log.h"
 #include "transfer.h"
-#include "usb_descriptor.h"
 #include "uvperf.h"
 
 static LPCSTR DrvIdNames[8] = {"libusbK", "libusb0", "WinUSB", "libusb0 filter",
@@ -149,8 +148,7 @@ int GetDeviceInfoFromList(PUVPERF_PARAM TestParms) {
             if (selection > 0 && selection <= count) {
                 count = 0;
                 while (LstK_MoveNext(TestParms->DeviceList, &deviceInfo) && ++count != selection) {
-                    LibK_SetContext(deviceInfo, KLIB_HANDLE_TYPE_LSTINFOK,
-                                    (KLIB_USER_CONTEXT)TRUE);
+                    LibK_SetContext(deviceInfo, KLIB_HANDLE_TYPE_LSTINFOK, (KLIB_USER_CONTEXT)TRUE);
                 }
 
                 if (!deviceInfo) {
@@ -241,8 +239,11 @@ int GetEndpointFromList(PUVPERF_PARAM TestParms) {
 
                 memcpy(TestParms->PipeInformation, pipeInfo, sizeof(pipeInfo));
 
-                if (TestParms->PipeInformation[userChoice - 1].PipeType == UsbdPipeTypeIsochronous)
+                if (TestParms->PipeInformation[userChoice - 1].PipeType ==
+                    UsbdPipeTypeIsochronous) {
+                    TestParms->TransferMode = TRANSFER_MODE_ASYNC;
                     hasIsoEndpoints++;
+                }
 
                 if (!TestParms->PipeInformation[userChoice - 1].MaximumPacketSize)
                     hasZeroMaxPacketEndpoints++;

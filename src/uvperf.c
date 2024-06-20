@@ -39,7 +39,6 @@
 #include "bench.h"
 #include "log.h"
 #include "transfer.h"
-#include "usb_descriptor.h"
 #include "utils.h"
 
 KUSB_DRIVER_API K;
@@ -71,10 +70,6 @@ int main(int argc, char **argv) {
         return -1;
 
     FileIOOpen(&TestParms);
-
-    // if (open_device_with_libusb(&TestParms) < 0) {
-    //     LOG_ERROR("Failed to bring endpoint descriptor using libusb library\n");
-    // }
 
     // TODO : press e : endpoint descriptor
     // TODO : press i : interface descriptor
@@ -111,7 +106,7 @@ int main(int argc, char **argv) {
             LOGERR0("Failed to get endpoint from list\n");
             goto Final;
         }
-
+        
     } else {
         LOG_VERBOSE("GetDeviceParam\n");
         if (GetDeviceParam(&TestParms) < 0) {
@@ -184,7 +179,7 @@ int main(int argc, char **argv) {
 
     if ((OutTest && OutTest->Ep.PipeType == UsbdPipeTypeIsochronous) ||
         (InTest && InTest->Ep.PipeType == UsbdPipeTypeIsochronous)) {
-        UINT frameNumber;
+        UINT frameNumber = 0;
         LOG_VERBOSE("GetCurrentFrameNumber\n");
         if (!K.GetCurrentFrameNumber(TestParms.InterfaceHandle, &frameNumber)) {
             ec = GetLastError();
@@ -233,6 +228,8 @@ int main(int argc, char **argv) {
         ResumeThread(OutTest->ThreadHandle);
         FileIOLog(OutTest);
     }
+
+    Sleep(2000);
 
     LOGMSG0("Press 'Q' to abort\n");
 

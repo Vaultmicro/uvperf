@@ -14,7 +14,6 @@
 #include "log.h"
 #include "lusbk_linked_list.h"
 #include "lusbk_shared.h"
-#include "libusb.h"
 
 #define MAX_OUTSTANDING_TRANSFERS 10
 
@@ -96,8 +95,6 @@ typedef struct _UVPERF_PARAM {
     USB_CONFIGURATION_DESCRIPTOR ConfigDescriptor;
     struct libusb_config_descriptor *config;
     USB_INTERFACE_DESCRIPTOR InterfaceDescriptor;
-    struct libusb_interface_descriptor intferface_descs[3];
-    struct libusb_endpoint_descriptor endpoint_descs[10];
     int num_ep;
     USB_ENDPOINT_DESCRIPTOR EndpointDescriptor;
     WINUSB_PIPE_INFORMATION_EX PipeInformation[32];

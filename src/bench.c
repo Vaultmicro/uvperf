@@ -1,27 +1,31 @@
-#include "transfer.h"
-#include "log.h"
-#include "utils.h"
 #include "bench.h"
+#include "log.h"
+#include "transfer.h"
+#include "utils.h"
 #include "uvperf.h"
 
 BOOL Bench_Open(__in PUVPERF_PARAM TestParams) {
     UCHAR altSetting;
     KUSB_HANDLE associatedHandle;
     UINT transferred;
-    KLST_DEVINFO_HANDLE deviceInfo;
+    KLST_DEVINFO_HANDLE deviceInfo = TestParams->SelectedDeviceProfile;
 
     LstK_MoveReset(TestParams->DeviceList);
 
     while (LstK_MoveNext(TestParams->DeviceList, &deviceInfo)) {
-        UINT userContext = (UINT)LibK_GetContext(deviceInfo, KLIB_HANDLE_TYPE_LSTINFOK);
-        if (userContext != TRUE)
-            continue;
 
         if (!LibK_LoadDriverAPI(&K, deviceInfo->DriverID)) {
             WinError(0);
             LOG_WARNING("can not load driver api %s\n", GetDrvIdString(deviceInfo->DriverID));
             continue;
         }
+
+        if (!K.Init(&TestParams->InterfaceHandle, deviceInfo)) {
+            WinError(GetLastError());
+            LOG_ERROR("Cannot initialize device interface for %s\n", deviceInfo->DevicePath);
+            continue;
+        }
+
         if (!TestParams->use_UsbK_Init) {
             TestParams->DeviceHandle =
                 CreateFileA(deviceInfo->DevicePath, GENERIC_READ | GENERIC_WRITE,

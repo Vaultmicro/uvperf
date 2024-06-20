@@ -2,6 +2,7 @@
 #define TRANSFER_H
 
 #include "uvperf.h"
+#include <stdint.h>
 
 int VerifyData(PUVPERF_TRANSFER_PARAM transferParam, BYTE *data, INT dataLength);
 

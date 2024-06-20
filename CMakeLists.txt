@@ -21,7 +21,6 @@ set(SOURCE_FILES
     src/bench.c
     src/transfer.c
     src/utils.c
-    src/usb_descriptor.c
     src/chrono_time.cpp
 )
 
@@ -30,8 +29,6 @@ add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 link_directories(${CMAKE_SOURCE_DIR}/lib)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/lib/libusbK.lib)
-target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/lib/libusb0.lib)
-target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/lib/libusb-1.0.lib)
 
 message(STATUS "Build configuration")
 message(STATUS "  Project       : ${PROJECT_NAME}")
