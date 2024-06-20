@@ -106,7 +106,7 @@ int main(int argc, char **argv) {
             LOGERR0("Failed to get endpoint from list\n");
             goto Final;
         }
-        
+
     } else {
         LOG_VERBOSE("GetDeviceParam\n");
         if (GetDeviceParam(&TestParms) < 0) {
@@ -177,6 +177,24 @@ int main(int argc, char **argv) {
         }
     }
 
+    LOG_VERBOSE("ShowParms\n");
+    if (InTest) {
+        ShowParms(InTest);
+        ShowTransfer(InTest);
+    }
+    if (OutTest) {
+        ShowParms(OutTest);
+        ShowTransfer(OutTest);
+    }
+
+    bIsoAsap = (UCHAR)TestParms.UseIsoAsap;
+    if (InTest)
+        K.SetPipePolicy(TestParms.InterfaceHandle, InTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1,
+                        &bIsoAsap);
+    if (OutTest)
+        K.SetPipePolicy(TestParms.InterfaceHandle, OutTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1,
+                        &bIsoAsap);
+
     if ((OutTest && OutTest->Ep.PipeType == UsbdPipeTypeIsochronous) ||
         (InTest && InTest->Ep.PipeType == UsbdPipeTypeIsochronous)) {
         UINT frameNumber = 0;
@@ -197,24 +215,6 @@ int main(int argc, char **argv) {
         }
     }
 
-    LOG_VERBOSE("ShowParms\n");
-    if (InTest) {
-        ShowParms(InTest);
-        ShowTransfer(InTest);
-    }
-    if (OutTest) {
-        ShowParms(OutTest);
-        ShowTransfer(OutTest);
-    }
-
-    bIsoAsap = (UCHAR)TestParms.UseIsoAsap;
-    if (InTest)
-        K.SetPipePolicy(TestParms.InterfaceHandle, InTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1,
-                        &bIsoAsap);
-    if (OutTest)
-        K.SetPipePolicy(TestParms.InterfaceHandle, OutTest->Ep.PipeId, ISO_ALWAYS_START_ASAP, 1,
-                        &bIsoAsap);
-
     if (InTest) {
         LOG_VERBOSE("ResumeThread for InTest\n");
         SetThreadPriority(InTest->ThreadHandle, TestParms.priority);
@@ -228,8 +228,6 @@ int main(int argc, char **argv) {
         ResumeThread(OutTest->ThreadHandle);
         FileIOLog(OutTest);
     }
-
-    Sleep(2000);
 
     LOGMSG0("Press 'Q' to abort\n");
 

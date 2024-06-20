@@ -91,7 +91,6 @@ BOOL WINAPI IsoTransferCb(_in unsigned int packetIndex, _ref unsigned int *offse
         if (*length) {
             isochResults->GoodPackets++;
             isochResults->Length += *length;
-            isochResults->Length = 0;
         }
     }
     isochResults->TotalPackets++;
@@ -312,8 +311,9 @@ void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM 
         if (totalIsoPackets) {
             LOG_MSG("Average %.2f Mbps\n", ((bpsReadOverall + bpsWriteOverall) * 8) / 1000 / 1000);
             LOG_MSG("Total %d Transfer\n", totalPackets);
-            LOG_MSG("ISO-Packets (Total/Good/Bad) : %u/%u/%u\n", totalIsoPackets, goodIsoPackets,
-                    badIsoPackets);
+            LOG_MSG("ISO-Packets (Total/Good/Bad) : %u/%u/%u, %.2f%%\n", totalIsoPackets,
+                    goodIsoPackets, badIsoPackets,
+                    totalIsoPackets ? (goodIsoPackets * 100.0) / totalIsoPackets : 0.0);
         } else {
             if (zlp) {
                 LOG_MSG("Average %.2f Mbps\n",
@@ -660,7 +660,7 @@ Done:
 }
 
 void GetAverageBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE *byteps) {
-    DWORD elapsedSeconds = 0.0;
+    DOUBLE elapsedSeconds = 0.0;
     if (!transferParam)
         return;
 
@@ -672,8 +672,8 @@ void GetAverageBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE *byteps) {
             (transferParam->LastTick.tv_sec - transferParam->StartTick.tv_sec) +
             (transferParam->LastTick.tv_nsec - transferParam->StartTick.tv_nsec) / 1000000000.0;
 
-        *byteps = (DOUBLE)transferParam->TotalTransferred / elapsedSeconds;
-        if (transferParam->TotalTransferred == 0) {
+        *byteps = (DOUBLE)transferParam->IsochResults.Length / elapsedSeconds;
+        if (transferParam->IsochResults.Length == 0) {
             *byteps = 0;
         }
         if (elapsedSeconds == 0) {
@@ -685,7 +685,7 @@ void GetAverageBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE *byteps) {
     }
 }
 void GetCurrentBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE *byteps) {
-    DWORD elapsedSeconds;
+    DOUBLE elapsedSeconds;
     if (!transferParam)
         return;
 
@@ -755,7 +755,6 @@ void ShowTransfer(PUVPERF_TRANSFER_PARAM transferParam) {
 
     if (transferParam->StartTick.tv_nsec) {
         GetAverageBytesSec(transferParam, &BytepsAverage);
-        GetCurrentBytesSec(transferParam, &BytepsCurrent);
         LOG_MSG("\tTotal %I64d Bytes\n", transferParam->TotalTransferred);
         LOG_MSG("\tTotal %d Transfers\n", transferParam->Packets);
 
