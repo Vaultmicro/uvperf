@@ -310,9 +310,9 @@ BOOL Bench_Open(__in PUVPERF_PARAM TestParams) {
 
     while (LstK_MoveNext(TestParams->DeviceList, &deviceInfo)) {
         // enabled
-        UINT userContext = (UINT)LibK_GetContext(deviceInfo, KLIB_HANDLE_TYPE_LSTINFOK);
-        if (userContext != TRUE)
-            continue;
+        // UINT userContext = (UINT)LibK_GetContext(deviceInfo, KLIB_HANDLE_TYPE_LSTINFOK);
+        // if (userContext != TRUE)
+        //     continue;
 
         if (!LibK_LoadDriverAPI(&K, deviceInfo->DriverID)) {
             WinError(0);
@@ -590,28 +590,26 @@ int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam, PUVPERF_TRANSFER_HANDLE 
 
     *handleRef = NULL;
 
-    // Submit transfers until the maximum number of outstanding transfer(s) is reached.
     while (transferParam->outstandingTransferCount < transferParam->TestParms->bufferCount) {
-        // Get the next available benchmark transfer handle.
         *handleRef = handle =
             &transferParam->TransferHandles[transferParam->transferHandleNextIndex];
 
-        // If a libusb-win32 transfer context hasn't been setup for this benchmark transfer
-        // handle, do it now.
-        //
         if (!handle->Overlapped.hEvent) {
             handle->Overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-            // Data buffer(s) are located at the end of the transfer param.
             handle->Data = transferParam->Buffer + (transferParam->transferHandleNextIndex *
                                                     transferParam->TestParms->allocBufferSize);
         } else {
-            // re-initialize and re-use the overlapped
             ResetEvent(handle->Overlapped.hEvent);
         }
 
         if (transferParam->Ep.PipeId & USB_ENDPOINT_DIRECTION_MASK) {
             handle->DataMaxLength = transferParam->TestParms->readlenth;
             if (transferParam->Ep.PipeType == UsbdPipeTypeIsochronous) {
+                LOG_MSG("handle->isochHandle : %p\n", handle->IsochHandle);
+                LOG_MSG("handle->DataMaxLength : %d\n", handle->DataMaxLength);
+                LOG_MSG("handle->frameNumber : %d\n", transferParam->frameNumber);
+                LOG_MSG("handle->Overlapped : %p\n", handle->Overlapped);
+
                 success = K.IsochReadPipe(handle->IsochHandle, handle->DataMaxLength,
                                           &transferParam->frameNumber, 0, &handle->Overlapped);
             } else {
@@ -621,7 +619,6 @@ int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam, PUVPERF_TRANSFER_HANDLE 
             }
         }
 
-        // Isochronous write pipe -> doesn't need right now
         else {
             AppendLoopBuffer(transferParam->TestParms, handle->Data,
                              transferParam->TestParms->writelength);
@@ -643,35 +640,24 @@ int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam, PUVPERF_TRANSFER_HANDLE 
             success = TRUE;
         }
 
-        // Submit this transfer now.
         handle->ReturnCode = ret = -labs(transferErrorCode);
         if (ret < 0) {
             handle->InUse = FALSE;
             goto Done;
         }
 
-        // Mark this handle has InUse.
         handle->InUse = TRUE;
 
-        // When transfers ir successfully submitted, OutstandingTransferCount goes up; when
-        // they are completed it goes down.
-        //
         transferParam->outstandingTransferCount++;
 
-        // Move TransferHandleNextIndex to the next available transfer.
         INC_ROLL(transferParam->transferHandleNextIndex, transferParam->TestParms->bufferCount);
     }
 
-    // If the number of outstanding transfers has reached the limit, wait for the
-    // oldest outstanding transfer to complete.
-    //
     if (transferParam->outstandingTransferCount == transferParam->TestParms->bufferCount) {
         UINT transferred;
-        // TransferHandleWaitIndex is the index of the oldest outstanding transfer.
         *handleRef = handle =
             &transferParam->TransferHandles[transferParam->transferHandleWaitIndex];
 
-        // Only wait, cancelling & freeing is handled by the caller.
         if (WaitForSingleObject(handle->Overlapped.hEvent, transferParam->TestParms->timeout) !=
             WAIT_OBJECT_0) {
             if (!transferParam->TestParms->isUserAborted) {
@@ -696,7 +682,6 @@ int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam, PUVPERF_TRANSFER_HANDLE 
 
         if (transferParam->Ep.PipeType == UsbdPipeTypeIsochronous &&
             transferParam->Ep.PipeId & 0x80) {
-            // iso read pipe
             memset(&handle->IsochResults, 0, sizeof(handle->IsochResults));
             IsochK_EnumPackets(handle->IsochHandle, &IsoTransferCb, 0, &handle->IsochResults);
             transferParam->IsochResults.TotalPackets += handle->IsochResults.TotalPackets;
@@ -706,9 +691,7 @@ int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam, PUVPERF_TRANSFER_HANDLE 
             transferred = handle->IsochResults.Length;
         }
 
-        // Isochronous write pipe -> doesn't need right now
         else if (transferParam->Ep.PipeType == UsbdPipeTypeIsochronous) {
-            // iso write pipe
             transferred = handle->DataMaxLength;
 
             transferParam->IsochResults.TotalPackets += transferParam->numberOFIsoPackets;
@@ -720,15 +703,10 @@ int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam, PUVPERF_TRANSFER_HANDLE 
         if (ret < 0)
             goto Done;
 
-        // Mark this handle has no longer InUse.
         handle->InUse = FALSE;
 
-        // When transfers ir successfully submitted, OutstandingTransferCount goes up; when
-        // they are completed it goes down.
-        //
         transferParam->outstandingTransferCount--;
 
-        // Move TransferHandleWaitIndex to the oldest outstanding transfer.
         INC_ROLL(transferParam->transferHandleWaitIndex, transferParam->TestParms->bufferCount);
     }
 
@@ -780,7 +758,7 @@ void SetParamsDefaults(PUVPERF_PARAM TestParms) {
     TestParms->Timer = 0;
     TestParms->timeout = 3000;
     TestParms->fileIO = FALSE;
-    TestParms->bufferlength = 1024;
+    TestParms->bufferlength = 8000;
     TestParms->refresh = 1000;
     TestParms->readlenth = TestParms->bufferlength;
     TestParms->writelength = TestParms->bufferlength;
@@ -1789,6 +1767,9 @@ int main(int argc, char **argv) {
         goto Done;
     }
 
+    TestParms.readlenth = max(TestParms.readlenth, TestParms.bufferlength);
+    TestParms.writelength = max(TestParms.writelength, TestParms.bufferlength);
+
     if (TestParms.TestType & TestTypeIn) {
         LOG_VERBOSE("CreateTransferParam for InTest\n");
         InTest = CreateTransferParam(&TestParms, TestParms.endpoint | USB_ENDPOINT_DIRECTION_MASK);
@@ -1852,7 +1833,13 @@ int main(int argc, char **argv) {
             LOG_ERROR("GetCurrentFrameNumber Failed. ErrorCode=%u, message : %s", ec, strerror(ec));
             goto Done;
         }
+
+        LOG_MSG("Current Frame Number: %u\n", frameNumber);
+        frameNumber = frameNumber % 2047;
+
         frameNumber += TestParms.bufferCount * 2;
+        frameNumber = frameNumber % 2047;
+        LOG_MSG("next Frame Number: %u\n", frameNumber);
         if (OutTest) {
             OutTest->frameNumber = frameNumber;
             frameNumber++;
@@ -1861,6 +1848,8 @@ int main(int argc, char **argv) {
             InTest->frameNumber = frameNumber;
             frameNumber++;
         }
+        
+        LOG_MSG("Current Frame Number: %u\n", frameNumber);
     }
 
     LOG_VERBOSE("ShowParms\n");
