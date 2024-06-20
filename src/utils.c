@@ -444,7 +444,7 @@ void ShowParms(PUVPERF_TRANSFER_PARAM transferParam) {
     LOG_MSG("\tBuffer Length            :  %d\n", TestParms->bufferlength);
     LOG_MSG("\tRepeat:                  :  %d\n", TestParms->repeat);
     LOG_MSG("------------------------------------------------\n");
-    LOG_MSG("Endpoint addr              :  0x%02X\n", transferParam->Ep.PipeId);
+    LOG_MSG("Endpoint Address           :  0x%02X\n", transferParam->Ep.PipeId);
     LOG_MSG("Endpoint Type              :  %s, %s\n",
             EndpointTypeDisplayString[transferParam->Ep.PipeType],
             (transferParam->Ep.PipeId & USB_ENDPOINT_DIRECTION_MASK) ? "In" : "Out");
