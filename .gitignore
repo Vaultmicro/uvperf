@@ -1,7 +1,7 @@
-
 .vscode/
 *.exe
 *.out
 *.o
 *.obj
 build/
+/myenv

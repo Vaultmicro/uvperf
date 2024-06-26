@@ -1,185 +1,114 @@
 #ifndef UVPERF_H
 #define UVPERF_H
 
-#include <conio.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <unistd.h>
-#include <windows.h>
-#include <wtypes.h>
-#include "libusbk.h"
-#include "log.h"
-#include "lusbk_linked_list.h"
-#include "lusbk_shared.h"
+#ifdef __linux__
+#include <libusb-1.0/libusb.h>
+#elif defined(__APPLE__)
+#include <libusb.h>
+#endif
 
-#define MAX_OUTSTANDING_TRANSFERS 10
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <vector>
 
-#define VerifyListLock(mTest) \
-    while (InterlockedExchange(&((mTest)->verifyLock), 1) != 0) \
-    Sleep(0)
-#define VerifyListUnlock(mTest) InterlockedExchange(&((mTest)->verifyLock), 0)
+namespace UVPerf {
 
-#define ENDPOINT_TYPE(transferParam) ((transferParam)->Ep.PipeType & 0x03)
+enum class TransferMode { Async, Sync };
+enum class TransferType { BulkIn, BulkOut, IsochronousIn };
 
-#define TRANSFER_DISPLAY(TransferParam, ReadingString, WritingString) \
-    ((TransferParam->Ep.PipeId & USB_ENDPOINT_DIRECTION_MASK) ? ReadingString : WritingString)
+class TransferHandle {
+  public:
+    TransferHandle();
+    ~TransferHandle();
 
-extern const char *EndpointTypeDisplayString[];
+    // Move constructor
+    TransferHandle(TransferHandle &&other) noexcept;
+    // Move assignment operator
+    TransferHandle &operator=(TransferHandle &&other) noexcept;
+    // Deleted copy constructor and copy assignment operator
+    TransferHandle(const TransferHandle &) = delete;
+    TransferHandle &operator=(const TransferHandle &) = delete;
 
-extern KUSB_DRIVER_API K;
-extern CRITICAL_SECTION DisplayCriticalSection;
-extern BOOL verbose;
+    std::vector<uint8_t> data;
+    libusb_transfer *isochHandle;
+    std::atomic<int> returnCode;
+    std::atomic<bool> inUse;
+};
 
-typedef struct _UVPERF_BUFFER {
-    PUCHAR Data;
-    LONG dataLenth;
-    LONG syncFailed;
-
-    struct _UVPERF_BUFFER *next;
-    struct _UVPERF_BUFFER *prev;
-} UVPERF_BUFFER, *PUVPERF_BUFFER;
-
-typedef enum _BENCHMARK_DEVICE_COMMAND {
-    SET_TEST = 0x0E,
-    GET_TEST = 0x0F,
-} UVPERF_DEVICE_COMMAND, *PUVPERF_DEVICE_COMMAND;
-
-typedef enum _UVPERF_DEVICE_TRANSFER_TYPE {
-    TestTypeNone = 0x00,
-    TestTypeIn = 0x01,
-    TestTypeOut = 0x02,
-    TestTypeLoop = TestTypeIn | TestTypeOut,
-} UVPERF_DEVICE_TRANSFER_TYPE, *PUVPERF_DEVICE_TRANSFER_TYPE;
-
-typedef enum _UVPERF_TRANSFER_MODE {
-    TRANSFER_MODE_SYNC,
-    TRANSFER_MODE_ASYNC,
-} UVPERF_TRANSFER_MODE;
-
-typedef struct _UVPERF_PARAM {
-    int vid;
-    int pid;
+class TransferParams {
+  public:
+    TransferParams();
+    uint16_t vid;
+    uint16_t pid;
     int intf;
     int altf;
-    int endpoint;
-    int Timer;
-    int timeout;
-    int refresh;
-    int retry;
-    int bufferlength;
-    int allocBufferSize;
-    int readlenth;
-    int writelength;
-    int bufferCount;
-    int repeat;
-    int fixedIsoPackets;
-    int priority;
-    int num_intf;
-    BOOL fileIO;
-    BOOL ShowTransfer;
-    BOOL useList;
-    BOOL verify;
-    BOOL verifyDetails;
-    BOOL list;
-    UVPERF_DEVICE_TRANSFER_TYPE TestType;
-    UVPERF_TRANSFER_MODE TransferMode;
+    uint8_t endpoint;
+    TransferMode transferMode;
+    TransferType testType;
+    uint32_t bufferLength;
+    uint32_t bufferCount;
+    uint32_t readLength;
+    uint32_t writeLength;
+    std::atomic<bool> isRunning;
+    std::atomic<bool> isCancelled;
+    std::atomic<bool> isUserAborted;
+    libusb_device_handle *interfaceHandle;
+    std::vector<TransferHandle> transferHandles;
+    bool fileIO;
+    bool verbose;
+    bool list;
+    bool showTransfer;
+    std::string logFileName;
+    std::ofstream logFile;
 
-    KLST_HANDLE DeviceList;
-    KLST_DEVINFO_HANDLE SelectedDeviceProfile;
-    HANDLE DeviceHandle;
-    KUSB_HANDLE InterfaceHandle;
-    USB_DEVICE_DESCRIPTOR DeviceDescriptor;
-    USB_CONFIGURATION_DESCRIPTOR ConfigDescriptor;
-    struct libusb_config_descriptor *config;
-    USB_INTERFACE_DESCRIPTOR InterfaceDescriptor;
-    int num_ep;
-    USB_ENDPOINT_DESCRIPTOR EndpointDescriptor;
-    WINUSB_PIPE_INFORMATION_EX PipeInformation[32];
-    BOOL isCancelled;
-    BOOL isUserAborted;
+    libusb_endpoint_descriptor epDescriptor;
+    std::unique_ptr<uint8_t[]> verifyBuffer;
+    uint16_t verifyBufferSize;
+    libusb_config_descriptor *configDescriptor;
+    std::chrono::steady_clock::time_point startTick;
+    std::chrono::steady_clock::time_point lastStartTick;
+    std::chrono::steady_clock::time_point lastTick;
+    size_t lastTransferred;
+    size_t totalTransferred;
+    size_t packets;
+    size_t totalErrorCount;
+    size_t runningErrorCount;
+    size_t runningTimeoutCount;
+    std::thread transferThread;
+};
 
-    volatile long verifyLock;
-    UVPERF_BUFFER *VerifyList;
+class UVPerf {
+  public:
+    UVPerf();
+    ~UVPerf();
+    bool initialize(int argc, char **argv);
+    void run();
+    int getDeviceInfoFromList();
+    int getEndpointFromList();
 
-    unsigned char verifyBuffer;
-    unsigned short verifyBufferSize;
-    BOOL use_UsbK_Init;
-    BOOL listDevicesOnly;
-    unsigned long deviceSpeed;
+  private:
+    std::shared_ptr<TransferParams> inTest;
+    std::shared_ptr<TransferParams> outTest;
+    std::shared_ptr<TransferParams> transferParam;
 
-    FILE *BufferFile;
-    FILE *LogFile;
-    char BufferFileName[MAX_PATH];
-    char LogFileName[MAX_PATH];
+    void setParamsDefaults();
+    bool parseArgs(int argc, char **argv);
+    void showUsage() const;
+    bool openDevice();
+    bool createTransferParams();
+    void freeTransferParams();
+    void showTransferParams() const;
+    void transferLoop();
+    void waitForTransferCompletion();
+    void openLogFile();
+    void logTransferParams();
+    void closeLogFile();
+};
 
-    UCHAR UseRawIO;
-    UCHAR DefaultAltSetting;
-    BOOL UseIsoAsap;
-    BYTE *VerifyBuffer;
-
-    unsigned char defaultAltSetting;
-} UVPERF_PARAM, *PUVPERF_PARAM;
-
-typedef struct _BENCHMARK_ISOCH_RESULTS {
-    UINT GoodPackets;
-    UINT BadPackets;
-    UINT Length;
-    UINT TotalPackets;
-} BENCHMARK_ISOCH_RESULTS;
-
-typedef struct _UVPERF_TRANSFER_HANDLE {
-    KISOCH_HANDLE IsochHandle;
-    OVERLAPPED Overlapped;
-    BOOL InUse;
-    PUCHAR Data;
-    INT DataMaxLength;
-    INT ReturnCode;
-    BENCHMARK_ISOCH_RESULTS IsochResults;
-} UVPERF_TRANSFER_HANDLE, *PUVPERF_TRANSFER_HANDLE;
-
-typedef struct _UVPERF_TRANSFER_PARAM {
-    PUVPERF_PARAM TestParms;
-    unsigned int frameNumber;
-    unsigned int numberOFIsoPackets;
-    HANDLE ThreadHandle;
-    DWORD ThreadId;
-    WINUSB_PIPE_INFORMATION_EX Ep;
-    USB_SUPERSPEED_ENDPOINT_COMPANION_DESCRIPTOR EpCompanionDescriptor;
-    BOOL HasEpCompanionDescriptor;
-    BOOL isRunning;
-
-    LONGLONG TotalTransferred;
-    LONG LastTransferred;
-
-    LONG Packets;
-    struct timespec StartTick;
-    struct timespec LastTick;
-    struct timespec LastStartTick;
-
-    int shortTrasnferred;
-
-    int TotalTimeoutCount;
-    int RunningTimeoutCount;
-
-    int totalErrorCount;
-    int runningErrorCount;
-
-    int TotalErrorCount;
-    int RunningErrorCount;
-
-    int shortTransferCount;
-
-    int transferHandleNextIndex;
-    int transferHandleWaitIndex;
-    int outstandingTransferCount;
-
-    UVPERF_TRANSFER_HANDLE TransferHandles[MAX_OUTSTANDING_TRANSFERS];
-    BENCHMARK_ISOCH_RESULTS IsochResults;
-
-    UCHAR Buffer[0];
-} UVPERF_TRANSFER_PARAM, *PUVPERF_TRANSFER_PARAM;
+} // namespace UVPerf
 
 #endif // UVPERF_H

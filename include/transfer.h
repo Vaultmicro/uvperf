@@ -1,37 +1,64 @@
 #ifndef TRANSFER_H
 #define TRANSFER_H
 
-#include "uvperf.h"
-#include <stdint.h>
 
-int VerifyData(PUVPERF_TRANSFER_PARAM transferParam, BYTE *data, INT dataLength);
+#ifdef __linux__
+#include <libusb-1.0/libusb.h>
+#elif defined(__APPLE__)
+#include <libusb.h>
+#endif
 
-int TransferSync(PUVPERF_TRANSFER_PARAM transferParam);
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <vector>
 
-BOOL WINAPI IsoTransferCb(_in unsigned int packetIndex, _ref unsigned int *offset,
-                          _ref unsigned int *length, _ref unsigned int *status,
-                          _in void *userState);
 
-int TransferAsync(PUVPERF_TRANSFER_PARAM transferParam, PUVPERF_TRANSFER_HANDLE *handleRef);
+namespace UVPerf {
 
-void VerifyLoopData();
+class TransferParams;
+class TransferHandle;
 
-void ShowRunningStatus(PUVPERF_TRANSFER_PARAM readParam, PUVPERF_TRANSFER_PARAM writeParam);
+class TransferStatus {
+  public:
+    static void showRunningStatus(const std::shared_ptr<TransferParams> &readParam,
+                                  const std::shared_ptr<TransferParams> &writeParam);
 
-DWORD TransferThread(PUVPERF_TRANSFER_PARAM transferParam);
+  private:
+    static void getAverageBitSec(const std::shared_ptr<TransferParams> &transferParam,
+                                   double &Mbps);
+    static void getCurrentBitSec(const std::shared_ptr<TransferParams> &transferParam,
+                                   double &Mbps);
+    static std::mutex displayMutex;
+};
 
-int CreateVerifyBuffer(PUVPERF_PARAM TestParam, WORD endpointMaxPacketSize);
+class Transfer {
+  public:
+    Transfer();
+    ~Transfer();
 
-void FreeTransferParam(PUVPERF_TRANSFER_PARAM *transferParamRef);
+    int verifyData(const std::shared_ptr<TransferParams> &transferParam,
+                   const std::vector<uint8_t> &data);
+    int transferSync(const std::shared_ptr<TransferParams> &transferParam);
+    int transferAsync(const std::shared_ptr<TransferParams> &transferParam,
+                      TransferHandle *&handleRef);
+    int createVerifyBuffer(const std::shared_ptr<TransferParams> &testParam,
+                           uint16_t endpointMaxPacketSize);
+    void freeTransferParam(std::shared_ptr<TransferParams> &transferParamRef);
+    void createTransferParam(const std::shared_ptr<TransferParams> &testParam, int endpointID);
+    void getAverageBytesSec(const std::shared_ptr<TransferParams> &transferParam, double &byteps);
+    void getCurrentBytesSec(const std::shared_ptr<TransferParams> &transferParam, double &byteps);
+    void showTransfer(const std::shared_ptr<TransferParams> &transferParam);
+    bool waitForTestTransfer(const std::shared_ptr<TransferParams> &transferParam,
+                             unsigned int msToWait);
 
-PUVPERF_TRANSFER_PARAM CreateTransferParam(PUVPERF_PARAM TestParam, int endpointID);
+  private:
+    void transferThread(std::shared_ptr<TransferParams> transferParam);
+};
 
-void GetAverageBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE *byteps);
-
-void GetCurrentBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE *byteps);
-
-void ShowTransfer(PUVPERF_TRANSFER_PARAM transferParam);
-
-BOOL WaitForTestTransfer(PUVPERF_TRANSFER_PARAM transferParam, UINT msToWait);
+} // namespace UVPerf
 
 #endif // TRANSFER_H
