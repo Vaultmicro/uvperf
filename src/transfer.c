@@ -672,8 +672,8 @@ void GetAverageBytesSec(PUVPERF_TRANSFER_PARAM transferParam, DOUBLE *byteps) {
             (transferParam->LastTick.tv_sec - transferParam->StartTick.tv_sec) +
             (transferParam->LastTick.tv_nsec - transferParam->StartTick.tv_nsec) / 1000000000.0;
 
-        *byteps = (DOUBLE)transferParam->IsochResults.Length / elapsedSeconds;
-        if (transferParam->IsochResults.Length == 0) {
+        *byteps = (DOUBLE)transferParam->TotalTransferred / elapsedSeconds;
+        if (transferParam->TotalTransferred == 0) {
             *byteps = 0;
         }
         if (elapsedSeconds == 0) {
