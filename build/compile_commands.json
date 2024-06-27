@@ -1,0 +1,20 @@
+[
+{
+  "directory": "C:/git/uvperf/build",
+  "command": "C:\\mingw64\\bin\\g++.exe  @CMakeFiles/uvperf.dir/includes_CXX.rsp -g -std=gnu++14 -o CMakeFiles\\uvperf.dir\\src\\logger.cc.obj -c C:\\git\\uvperf\\src\\logger.cc",
+  "file": "C:/git/uvperf/src/logger.cc",
+  "output": "CMakeFiles/uvperf.dir/src/logger.cc.obj"
+},
+{
+  "directory": "C:/git/uvperf/build",
+  "command": "C:\\mingw64\\bin\\g++.exe  @CMakeFiles/uvperf.dir/includes_CXX.rsp -g -std=gnu++14 -o CMakeFiles\\uvperf.dir\\src\\transfer.cc.obj -c C:\\git\\uvperf\\src\\transfer.cc",
+  "file": "C:/git/uvperf/src/transfer.cc",
+  "output": "CMakeFiles/uvperf.dir/src/transfer.cc.obj"
+},
+{
+  "directory": "C:/git/uvperf/build",
+  "command": "C:\\mingw64\\bin\\g++.exe  @CMakeFiles/uvperf.dir/includes_CXX.rsp -g -std=gnu++14 -o CMakeFiles\\uvperf.dir\\src\\uvperf.cc.obj -c C:\\git\\uvperf\\src\\uvperf.cc",
+  "file": "C:/git/uvperf/src/uvperf.cc",
+  "output": "CMakeFiles/uvperf.dir/src/uvperf.cc.obj"
+}
+]

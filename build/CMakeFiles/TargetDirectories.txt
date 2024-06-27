@@ -1,0 +1,3 @@
+C:/git/uvperf/build/CMakeFiles/uvperf.dir
+C:/git/uvperf/build/CMakeFiles/edit_cache.dir
+C:/git/uvperf/build/CMakeFiles/rebuild_cache.dir
