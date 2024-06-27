@@ -13,7 +13,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(SOURCE_FILES
     src/logger.cc
-    uvperf_simple.cc
+    src/transfer.cc
+    src/uvperf.cc
 )
 
 # Common settings
