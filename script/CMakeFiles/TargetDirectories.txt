@@ -1,0 +1,3 @@
+C:/Users/Gyuho/VaultMicro/git/uvperf-1.1.1 - 복사본/script/CMakeFiles/uvperf.dir
+C:/Users/Gyuho/VaultMicro/git/uvperf-1.1.1 - 복사본/script/CMakeFiles/edit_cache.dir
+C:/Users/Gyuho/VaultMicro/git/uvperf-1.1.1 - 복사본/script/CMakeFiles/rebuild_cache.dir

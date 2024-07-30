@@ -1,0 +1,32 @@
+[16:40:50.184] |  	Driver         :  libusbK
+[16:40:50.184] |  	VID:           :  0x1004
+[16:40:50.184] |  	PID:           :  0x61A1
+[16:40:50.184] |  	Interface:     :  1
+[16:40:50.184] |  	Alt Interface: :  1
+[16:40:50.184] |  	Endpoint:      :  0x83
+[16:40:50.184] |  	Transfer mode  :  Isochronous
+[16:40:50.184] |  	Timeout:       :  1000
+[16:40:50.184] |  	Read Length:   :  24576
+[16:40:50.184] |  	Write Length:  :  1024
+[16:40:50.184] |  	Repeat:        :  0
+[16:40:50.184] |  
+[16:40:51.188] |  Average 4.42 Mbps
+[16:40:51.188] |  Total 1033 Transfer
+[16:40:51.188] |  ISO-Packets (Total/Good/Bad) : 8272/180/0
+[16:40:52.199] |  Average 5.47 Mbps
+[16:40:52.199] |  Total 2044 Transfer
+[16:40:52.199] |  ISO-Packets (Total/Good/Bad) : 16360/445/0
+[16:40:53.203] |  Average 5.76 Mbps
+[16:40:53.203] |  Total 3048 Transfer
+[16:40:53.203] |  ISO-Packets (Total/Good/Bad) : 24392/703/0
+[16:40:54.215] |  Average 5.90 Mbps
+[16:40:54.215] |  Total 4060 Transfer
+[16:40:54.215] |  ISO-Packets (Total/Good/Bad) : 32488/960/0
+[16:40:54.215] |  waiting for Ep83h thread..
+[16:40:54.216] |  stopped Ep0x83 thread 	ExitCode=0
+[16:40:54.216] |  Isochronous Read Ep0x83 Maximum Packet Size: 3072
+[16:40:54.216] |  	Total 2949120 Bytes
+[16:40:54.216] |  	Total 4061 Transfers
+[16:40:54.216] |  	Average 5.90 Mbps/sec
+[16:40:54.216] |  	Elapsed Time 4.03 seconds
+[16:40:54.216] |  

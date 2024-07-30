@@ -1,0 +1,140 @@
+[14:53:14.612] |  	Driver         :  libusbK
+[14:53:14.612] |  	VID:           :  0x1004
+[14:53:14.612] |  	PID:           :  0x61A1
+[14:53:14.612] |  	Interface:     :  1
+[14:53:14.612] |  	Alt Interface: :  1
+[14:53:14.612] |  	Endpoint:      :  0x83
+[14:53:14.612] |  	Transfer mode  :  Isochronous
+[14:53:14.612] |  	Timeout:       :  1000
+[14:53:14.612] |  	Read Length:   :  24576
+[14:53:14.612] |  	Write Length:  :  1024
+[14:53:14.612] |  	Repeat:        :  0
+[14:53:14.612] |  
+[14:53:15.623] |  Average 6.39 Mbps
+[14:53:15.623] |  Total 1040 Transfer
+[14:53:15.623] |  ISO-Packets (Total/Good/Bad) : 8328/260/3
+[14:53:16.637] |  Average 6.38 Mbps
+[14:53:16.637] |  Total 2054 Transfer
+[14:53:16.637] |  ISO-Packets (Total/Good/Bad) : 16440/519/3
+[14:53:17.641] |  Average 6.36 Mbps
+[14:53:17.641] |  Total 3058 Transfer
+[14:53:17.641] |  ISO-Packets (Total/Good/Bad) : 24472/776/3
+[14:53:18.654] |  Average 6.35 Mbps
+[14:53:18.654] |  Total 4072 Transfer
+[14:53:18.654] |  ISO-Packets (Total/Good/Bad) : 32584/1034/3
+[14:53:19.670] |  Average 6.35 Mbps
+[14:53:19.670] |  Total 5087 Transfer
+[14:53:19.670] |  ISO-Packets (Total/Good/Bad) : 40704/1292/3
+[14:53:20.680] |  Average 6.35 Mbps
+[14:53:20.680] |  Total 6097 Transfer
+[14:53:20.680] |  ISO-Packets (Total/Good/Bad) : 48784/1550/3
+[14:53:21.691] |  Average 6.35 Mbps
+[14:53:21.691] |  Total 7109 Transfer
+[14:53:21.691] |  ISO-Packets (Total/Good/Bad) : 56880/1809/3
+[14:53:22.705] |  Average 6.35 Mbps
+[14:53:22.705] |  Total 8123 Transfer
+[14:53:22.705] |  ISO-Packets (Total/Good/Bad) : 64992/2067/3
+[14:53:23.719] |  Average 6.11 Mbps
+[14:53:23.719] |  Total 9136 Transfer
+[14:53:23.719] |  ISO-Packets (Total/Good/Bad) : 73096/2239/3
+[14:53:24.734] |  Average 6.14 Mbps
+[14:53:24.734] |  Total 10151 Transfer
+[14:53:24.734] |  ISO-Packets (Total/Good/Bad) : 81216/2497/3
+[14:53:25.747] |  Average 6.16 Mbps
+[14:53:25.747] |  Total 11164 Transfer
+[14:53:25.747] |  ISO-Packets (Total/Good/Bad) : 89320/2756/3
+[14:53:26.757] |  Average 6.17 Mbps
+[14:53:26.757] |  Total 12174 Transfer
+[14:53:26.757] |  ISO-Packets (Total/Good/Bad) : 97400/3013/3
+[14:53:27.766] |  Average 6.18 Mbps
+[14:53:27.766] |  Total 13183 Transfer
+[14:53:27.766] |  ISO-Packets (Total/Good/Bad) : 105472/3270/3
+[14:53:28.775] |  Average 6.19 Mbps
+[14:53:28.775] |  Total 14192 Transfer
+[14:53:28.775] |  ISO-Packets (Total/Good/Bad) : 113544/3529/3
+[14:53:29.787] |  Average 6.20 Mbps
+[14:53:29.787] |  Total 15204 Transfer
+[14:53:29.787] |  ISO-Packets (Total/Good/Bad) : 121640/3785/3
+[14:53:30.799] |  Average 6.21 Mbps
+[14:53:30.799] |  Total 16216 Transfer
+[14:53:30.799] |  ISO-Packets (Total/Good/Bad) : 129736/4043/3
+[14:53:31.804] |  Average 6.22 Mbps
+[14:53:31.804] |  Total 17221 Transfer
+[14:53:31.804] |  ISO-Packets (Total/Good/Bad) : 137776/4301/3
+[14:53:32.808] |  Average 6.11 Mbps
+[14:53:32.808] |  Total 18225 Transfer
+[14:53:32.808] |  ISO-Packets (Total/Good/Bad) : 145808/4473/3
+[14:53:33.811] |  Average 6.12 Mbps
+[14:53:33.811] |  Total 19228 Transfer
+[14:53:33.811] |  ISO-Packets (Total/Good/Bad) : 153832/4732/3
+[14:53:34.814] |  Average 6.13 Mbps
+[14:53:34.814] |  Total 20231 Transfer
+[14:53:34.814] |  ISO-Packets (Total/Good/Bad) : 161856/4990/3
+[14:53:35.829] |  Average 6.14 Mbps
+[14:53:35.829] |  Total 21246 Transfer
+[14:53:35.829] |  ISO-Packets (Total/Good/Bad) : 169976/5248/3
+[14:53:36.843] |  Average 6.15 Mbps
+[14:53:36.843] |  Total 22260 Transfer
+[14:53:36.843] |  ISO-Packets (Total/Good/Bad) : 178088/5505/3
+[14:53:37.849] |  Average 6.16 Mbps
+[14:53:37.849] |  Total 23266 Transfer
+[14:53:37.849] |  ISO-Packets (Total/Good/Bad) : 186136/5763/3
+[14:53:38.863] |  Average 6.16 Mbps
+[14:53:38.863] |  Total 24280 Transfer
+[14:53:38.863] |  ISO-Packets (Total/Good/Bad) : 194248/6019/3
+[14:53:39.870] |  Average 6.17 Mbps
+[14:53:39.870] |  Total 25287 Transfer
+[14:53:39.870] |  ISO-Packets (Total/Good/Bad) : 202304/6277/3
+[14:53:40.885] |  Average 6.18 Mbps
+[14:53:40.885] |  Total 26302 Transfer
+[14:53:40.885] |  ISO-Packets (Total/Good/Bad) : 210424/6536/3
+[14:53:41.890] |  Average 6.15 Mbps
+[14:53:41.890] |  Total 27307 Transfer
+[14:53:41.890] |  ISO-Packets (Total/Good/Bad) : 218464/6752/3
+[14:53:42.897] |  Average 6.11 Mbps
+[14:53:42.898] |  Total 28315 Transfer
+[14:53:42.898] |  ISO-Packets (Total/Good/Bad) : 226528/6966/3
+[14:53:43.900] |  Average 6.12 Mbps
+[14:53:43.900] |  Total 29317 Transfer
+[14:53:43.900] |  ISO-Packets (Total/Good/Bad) : 234544/7224/3
+[14:53:44.905] |  Average 6.13 Mbps
+[14:53:44.905] |  Total 30322 Transfer
+[14:53:44.905] |  ISO-Packets (Total/Good/Bad) : 242584/7483/3
+[14:53:45.919] |  Average 6.14 Mbps
+[14:53:45.919] |  Total 31337 Transfer
+[14:53:45.919] |  ISO-Packets (Total/Good/Bad) : 250704/7741/3
+[14:53:46.935] |  Average 6.14 Mbps
+[14:53:46.935] |  Total 32352 Transfer
+[14:53:46.935] |  ISO-Packets (Total/Good/Bad) : 258824/7998/3
+[14:53:47.944] |  Average 6.15 Mbps
+[14:53:47.944] |  Total 33361 Transfer
+[14:53:47.944] |  ISO-Packets (Total/Good/Bad) : 266896/8256/3
+[14:53:48.955] |  Average 6.15 Mbps
+[14:53:48.955] |  Total 34372 Transfer
+[14:53:48.955] |  ISO-Packets (Total/Good/Bad) : 274984/8515/3
+[14:53:49.970] |  Average 6.16 Mbps
+[14:53:49.970] |  Total 35387 Transfer
+[14:53:49.970] |  ISO-Packets (Total/Good/Bad) : 283104/8773/3
+[14:53:50.971] |  Average 6.17 Mbps
+[14:53:50.971] |  Total 36388 Transfer
+[14:53:50.971] |  ISO-Packets (Total/Good/Bad) : 291112/9031/3
+[14:53:51.975] |  Average 6.11 Mbps
+[14:53:51.975] |  Total 37392 Transfer
+[14:53:51.975] |  ISO-Packets (Total/Good/Bad) : 299144/9201/3
+[14:53:52.979] |  Average 6.12 Mbps
+[14:53:52.979] |  Total 38396 Transfer
+[14:53:52.979] |  ISO-Packets (Total/Good/Bad) : 307176/9459/3
+[14:53:53.989] |  Average 6.12 Mbps
+[14:53:53.989] |  Total 39407 Transfer
+[14:53:53.989] |  ISO-Packets (Total/Good/Bad) : 315264/9715/3
+[14:53:54.997] |  Average 6.13 Mbps
+[14:53:54.997] |  Total 40414 Transfer
+[14:53:54.997] |  ISO-Packets (Total/Good/Bad) : 323320/9973/3
+[14:53:54.997] |  waiting for Ep83h thread..
+[14:53:54.998] |  stopped Ep0x83 thread 	ExitCode=0
+[14:53:54.998] |  Isochronous Read Ep0x83 Maximum Packet Size: 3072
+[14:53:54.998] |  	Total 30637056 Bytes
+[14:53:54.998] |  	Total 40415 Transfers
+[14:53:54.998] |  	Average 6.13 Mbps/sec
+[14:53:54.998] |  	Elapsed Time 40.38 seconds
+[14:53:54.998] |  

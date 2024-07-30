@@ -1,0 +1,3 @@
+"C:\Program Files\CMake\bin\cmake.exe" -E rm -f CMakeFiles\uvperf.dir/objects.a
+C:\msys64\mingw64\bin\ar.exe qc CMakeFiles\uvperf.dir/objects.a @CMakeFiles\uvperf.dir\objects1.rsp
+gcc -Wl,--whole-archive CMakeFiles\uvperf.dir/objects.a -Wl,--no-whole-archive -o uvperf.exe -Wl,--out-implib,libuvperf.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\uvperf.dir\linkLibs.rsp

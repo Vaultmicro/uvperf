@@ -1,0 +1,1 @@
+ "C:/Users/Gyuho/VaultMicro/git/uvperf-1.1.1 - 복사본/lib/libusbK.lib" -lusb-1.0 -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 
